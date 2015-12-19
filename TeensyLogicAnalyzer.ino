@@ -32,7 +32,7 @@
 //  User Configuration settings
 //
 
-#define CREATE_TEST_FREQUENCIES  // if uncommented, it will output frequencies on pins 3 and 6
+//#define CREATE_TEST_FREQUENCIES  // if uncommented, it will output frequencies on pins 3 and 6
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
 // Debug serial port. Uncomment one of these lines
@@ -179,8 +179,8 @@ void setup()
   // PWM available on pins 3-6,9,10,20-23
   // Port D: chan 4(6),5(20),6(21),7(5)
 
-  analogWriteFrequency (3, 1000000);
-  analogWrite (3, 128);
+//  analogWriteFrequency (3, 1000000);
+//  analogWrite (3, 128);
 
   analogWriteFrequency (6, 25000);
   analogWrite (CHAN4, 64);
