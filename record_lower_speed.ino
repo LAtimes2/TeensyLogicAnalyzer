@@ -35,34 +35,38 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
   uint32_t *startPtr = (uint32_t *)sv.startPtr;
-  register byte samplesPerElementMinusOne = (sv.samplesPerByte * 4) - 1;
+  byte samplesPerElement = sv.samplesPerByte * 4;
+  register byte samplesPerElementMinusOne = samplesPerElement - 1;
   register uint32_t sampleMask = sv.sampleMask;
   register uint32_t sampleShift = sv.sampleShift;
-  int triggerCount = -1;     // -1 means trigger hasn't occurred yet
+  int triggerCount = samplesPerElementMinusOne;
+  uint32_t *triggerPtr = startOfBuffer;
   register int workingCount = samplesPerElementMinusOne + 1;
   register uint32_t workingValue = 0;
 
   stateType state = Buffering;
-
-  // if using a trigger
-  if (sumpTrigMask)
-  {
-    state = Buffering;
-  }
-  else
-  {
-    state = Triggered;
-  }
 
   // number of samples to delay before arming the trigger
   // (if not trigger, then this is 0)
   sv.delaySamples = sumpSamples - sumpDelaySamples;
 
   // add one due to truncation
-  sv.delaySize = (sv.delaySamples / sv.samplesPerByte) + 1;
+  sv.delaySize = (sv.delaySamples / samplesPerElement) + 1;
 
-  // position to arm the trigger
-  startPtr = inputPtr + sv.delaySize;
+  // if using a trigger
+  if (sumpTrigMask)
+  {
+    state = Buffering;
+
+    // position to arm the trigger
+    startPtr = inputPtr + sv.delaySize;
+  }
+  else
+  {
+    state = Triggered_First_Pass;
+
+    startPtr = endOfBuffer;
+  }
 
   // 100% causes a problem with circular buffer - never stops
   if (startPtr >= endOfBuffer)
@@ -117,10 +121,12 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
       if ((PORT_DATA_INPUT_REGISTER & sumpTrigMask) == sumpTrigValue)
       {
         triggerCount = workingCount;
+        triggerPtr = inputPtr;
       
         // last location to save
         startPtr = inputPtr - sv.delaySize;
 
+        // move to triggered state
         state = Triggered_First_Pass;
       }
     }
@@ -151,7 +157,8 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
       // adjust for circular buffer wraparound at the end.
       if (startPtr < startOfBuffer)
       {
-        startPtr = startPtr + sv.bufferSize;
+ // add 1 due to truncation?
+        startPtr = startPtr + sv.samplesToRecord / samplesPerElement;
       }
 
       // move to triggered state
@@ -169,11 +176,10 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
   unmaskInterrupts ();
 
   // adjust trigger count
-  triggerCount = (samplesPerElementMinusOne + 1) - triggerCount;
+  sv.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 
   // send data back to SUMP client
   sv.startPtr = (byte *)startPtr;
-  sv.triggerCount = triggerCount;
 
 }
 

@@ -63,6 +63,8 @@
 // End of settings
 //////////////////////////////////////
 
+#define VERSION "beta2"
+
 // 58k buffer size
 #define LA_SAMPLE_SIZE 58 * 1024
 
@@ -130,17 +132,32 @@ struct sumpVariableStruct {
   uint32_t bufferSize;
   uint32_t delaySamples = 0;
   uint32_t delaySize = 0;
-  byte extraByte1 = 0;
-  byte extraByte2 = 0;
-  int firstExtraByte = 1;
-  uint16_t sampleMask = 0xFF;
-  uint16_t sampleShift = 8;
+  uint32_t sampleMask = 0xFF;
+  uint32_t sampleShift = 8;
   byte samplesPerByte = 1;
-  bool swapBytes = false;
-  int triggerCount = -1;     // -1 means trigger hasn't occurred yet
+  int samplesToRecord;
+  int triggerSampleIndex = 0;
   byte *startOfBuffer;
   byte *endOfBuffer;
   byte *startPtr;
+};
+
+// data to set up recording
+struct sumpSetupVariableStruct {
+  uint32_t delaySamples = 0;
+  uint32_t sampleMask = 0xFF;
+  uint32_t sampleShift = 8;
+  byte samplesPerElement = 1;
+  int samplesRequested;
+  int samplesToRecord;
+  int samplesToSend;
+  uint32_t *startOfBuffer;
+  uint32_t *endOfBuffer;
+};
+
+// data that changes while recording
+struct sumpDynamicVariableStruct {
+  int triggerSampleIndex;
 };
 
 void setup()
@@ -313,7 +330,7 @@ void processSingleByteCommand (byte inByte){
       Serial.write(0x00);
       // firmware version string
       Serial.write(0x02);
-      Serial.write("beta1");
+      Serial.write(VERSION);
       Serial.write(0x00);
       // sample memory (4096)
       Serial.write(0x21);
@@ -394,7 +411,7 @@ void processFiveByteCommand (byte command[])
       sumpDelaySamples = (sumpDelaySamples + 1) * 4;
 
       // need this to get OLS client to line up trigger to time 0
-////      sumpDelaySamples += 2;
+      sumpDelaySamples += 2;
 
       sumpRequestedSamples = sumpSamples;
 
@@ -481,13 +498,11 @@ void SUMPrecordData(void) {
 
   sv.bufferSize = sumpSamples / samplesPerByte;
 
-// temporary until logic is fixed
-if (sumpTrigMask)
-{
-  sv.bufferSize += 8;
-}
+int samplesPerElement = samplesPerByte * 4;
+
+  sv.samplesToRecord = sumpSamples + 2 * samplesPerElement;
   
-  endOfBuffer = startOfBuffer + sv.bufferSize;
+  endOfBuffer = startOfBuffer + sv.samplesToRecord / samplesPerByte;
   
   sv.delaySamples = sumpSamples - sumpDelaySamples;
   sv.delaySize = sv.delaySamples / samplesPerByte;
@@ -502,7 +517,7 @@ if (sumpTrigMask)
   sv.startOfBuffer = startOfBuffer;
   sv.sampleMask = sampleMask;
   sv.sampleShift = sampleShift;
-  sv.triggerCount = 0;
+  sv.triggerSampleIndex = 0;
 
   // setup timer
   startTimer (sumpDivisor);
@@ -519,9 +534,25 @@ if (sumpTrigMask)
 //recordByteData (sv);
   }
   
+
+  sumpSetupVariableStruct setup;
+  sumpDynamicVariableStruct dynamic;
+
+  setup.delaySamples = sv.delaySamples;
+  setup.sampleMask = sv.sampleMask;
+  setup.sampleShift = sv.sampleShift;
+  setup.samplesPerElement = sv.samplesPerByte * 4;
+  setup.samplesRequested = sumpRequestedSamples;
+  setup.samplesToRecord = sv.samplesToRecord;
+  setup.samplesToSend = sv.bufferSize;
+  setup.startOfBuffer = (uint32_t *)sv.startOfBuffer;
+  setup.endOfBuffer = (uint32_t *)sv.endOfBuffer;
+
+  dynamic.triggerSampleIndex = sv.triggerSampleIndex;
+
   if (sumpRunning)
   {
-     sendData (sv);
+     sendData (setup, dynamic);
   }
 
   SUMPreset();
@@ -534,9 +565,22 @@ inline void waitForTimeout (void)
     digitalWriteFast (TIMING_PIN_0, HIGH);
   #endif
 
-  while (!timerExpired ());
+//  while (!timerExpired ());
+//  clearTimerFlag ();
 
-  clearTimerFlag ();
+   // for speed, to reduce jitter
+   waitStart:
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (!TIMER_FLAG_REGISTER) goto waitStart;
+
+   waitEnd:
+   clearTimerFlag ();
 
   #ifdef TIMING_DISCRETES     
     digitalWriteFast (TIMING_PIN_0, LOW);
@@ -625,40 +669,6 @@ void sendData (struct sumpVariableStruct sv) {
    
    // number of samples in the 2 extra words
    extraCount = sv.samplesPerByte * 2;
-
-   // if using a trigger
-//   if (sv.triggerCount >= 0)
-if (0)
-   {
-      // Two extra words were sampled to account for triggering in the middle
-      // of a byte. This logic determines how much of the extra data is needed
-      numSamplesNotInBuffer = sv.samplesPerByte + sv.triggerCount - delayCount;
-
-      // send the extra data
-      while (extraCount > 0)
-      {
-         if (extraCount > sv.samplesPerByte)
-         {
-            workingValue = sv.extraByte2;
-         } else {
-            workingValue = sv.extraByte1;
-         }
-         for (index = 0; index < sv.samplesPerByte; index++)
-         {
-            // count backwards through the extra samples
-            extraCount--;
-            // until it gets to the ones it needs to send
-            if (extraCount < numSamplesNotInBuffer)
-            {
-               value = (unusedValue & ~sampleMask) + (workingValue & sampleMask);
-               Serial.write(value);
-               workingCount++;
-            }
-            workingValue >>= sampleShift; // shift to next value
-            unusedValue = ~unusedValue; // toggle 1's and 0's
-         }
-      }
-   }
 
    inputPtr = sv.startPtr - 1;
 
