@@ -27,6 +27,7 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
   enum stateType {
     Buffering,
     LookingForTrigger,
+    Triggered_First_Pass,
     Triggered
   };
 
@@ -37,7 +38,6 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
   register byte samplesPerElementMinusOne = (sv.samplesPerByte * 4) - 1;
   register uint32_t sampleMask = sv.sampleMask;
   register uint32_t sampleShift = sv.sampleShift;
-  uint32_t *triggerPtr = startOfBuffer;
   int triggerCount = -1;     // -1 means trigger hasn't occurred yet
   register int workingCount = samplesPerElementMinusOne + 1;
   register uint32_t workingValue = 0;
@@ -116,16 +116,12 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
       // if trigger has occurred
       if ((PORT_DATA_INPUT_REGISTER & sumpTrigMask) == sumpTrigValue)
       {
-        triggerPtr = inputPtr;
         triggerCount = workingCount;
       
-        // move to triggered state
-        state = Triggered;
-        set_led_off (); // TRIGGERED, turn off LED
+        // last location to save
+        startPtr = inputPtr - sv.delaySize;
 
-        #ifdef TIMING_DISCRETES
-          digitalWriteFast (TIMING_PIN_1, LOW);
-        #endif
+        state = Triggered_First_Pass;
       }
     }
     else if (state == Triggered)
@@ -150,20 +146,27 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
         #endif
       }
     }
+    else if (state == Triggered_First_Pass)
+    {
+      // adjust for circular buffer wraparound at the end.
+      if (startPtr < startOfBuffer)
+      {
+        startPtr = startPtr + sv.bufferSize;
+      }
+
+      // move to triggered state
+      state = Triggered;
+      set_led_off (); // TRIGGERED, turn off LED
+
+      #ifdef TIMING_DISCRETES
+        digitalWriteFast (TIMING_PIN_1, LOW);
+      #endif
+    }
 
   } // while (1)
 
   // cleanup
   unmaskInterrupts ();
-
-  // last location to save
-  startPtr = triggerPtr - sv.delaySize;
-
-  // adjust for circular buffer wraparound at the end.
-  if (startPtr < startOfBuffer)
-  {
-    startPtr = startPtr + sv.bufferSize;
-  }
 
   // adjust trigger count
   triggerCount = (samplesPerElementMinusOne + 1) - triggerCount;
