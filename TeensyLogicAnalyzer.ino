@@ -63,10 +63,29 @@
 // End of settings
 //////////////////////////////////////
 
+#include <stdint.h>
+#include "types.h"
+
 #define VERSION "beta2"
 
-// 58k buffer size
-#define LA_SAMPLE_SIZE 58 * 1024
+// Teensy 3.0
+#if defined(__MK20DX128__)
+
+   // 10k buffer size
+   #define LA_SAMPLE_SIZE 12 * 1024
+
+// Teensy 3.1
+#elif defined(__MK20DX256__)
+
+   // 58k buffer size
+   #define LA_SAMPLE_SIZE 58 * 1024
+
+#else
+
+   // 5k buffer size
+   #define LA_SAMPLE_SIZE 4 * 1024
+
+#endif
 
 // use Port D for sampling
 #define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
@@ -90,6 +109,9 @@
 #define SUMP_TRIG  0xc0
 #define SUMP_TRIG_VALS 0xc1
 #define SUMP_TRIG_CONFIG 0xc2
+
+// DEBUG_SERIAL 0 causes this warning. It is not a usual warning, so ignoring it is low risk
+#pragma GCC diagnostic ignored "-Wunused-value"
 
 // this is the main data storage array. Add 10 extra bytes
 // just in case (triggering may use up to 8 extra)
@@ -140,24 +162,6 @@ struct sumpVariableStruct {
   byte *startOfBuffer;
   byte *endOfBuffer;
   byte *startPtr;
-};
-
-// data to set up recording
-struct sumpSetupVariableStruct {
-  uint32_t delaySamples = 0;
-  uint32_t sampleMask = 0xFF;
-  uint32_t sampleShift = 8;
-  byte samplesPerElement = 1;
-  int samplesRequested;
-  int samplesToRecord;
-  int samplesToSend;
-  uint32_t *startOfBuffer;
-  uint32_t *endOfBuffer;
-};
-
-// data that changes while recording
-struct sumpDynamicVariableStruct {
-  int triggerSampleIndex;
 };
 
 void setup()
@@ -460,15 +464,8 @@ void SUMPrecordData(void) {
   byte sampleMask;
   byte sampleShift;
   
-  // when using a trigger and less than 8 channels, need to store extra data due to non-byte boundaries
-  // at beginning and end of buffer
-  byte extraByte1 = 0;
-  byte extraByte2 = 0;
-  int firstExtraByte = 1;
-  
   byte *startOfBuffer = logicData;
 
-  byte *inputPtr;
   byte *endOfBuffer;
   byte *startPtr;
 
@@ -509,7 +506,6 @@ int samplesPerElement = samplesPerByte * 4;
   
   // set pointer to beginning of data buffer
   startPtr = startOfBuffer;
-  inputPtr = startPtr;
 
   sv.samplesPerByte = samplesPerByte;
   sv.startPtr = startPtr;
