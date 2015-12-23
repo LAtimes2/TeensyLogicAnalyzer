@@ -19,8 +19,8 @@ If you don't have any signals to connect, you can uncomment the $define CREATE_T
 3. Select Capture -> Begin Capture
 4. Set Connection type to Serial port, Analyzer port to your Teensy COM port (verify at Teensyduino Tools -> Port), Port Speed 115200bps (may not matter since USB)
 5. Set Device type as follows: (if it's not available, did you copy the .cfg file correctly?)
-      Teensy 3.0/3.1/3.2 - Teensy 96 MHz OLS
-      Teensy LC - Teensy LC 48 MHz OLS
+*      Teensy 3.0/3.1/3.2 - Teensy 96 MHz OLS
+*      Teensy LC - Teensy LC 48 MHz OLS
 6. To test, click Show device metadata. Device type should be Teensy96 or TeensyLC48, as applicable.
 7. Select Acquisition tab and set Sampling Rate and Recording Size to desired settings.
 8. If a trigger is desired, select Triggers tab, set Enabled, set Before/After ratio, and select Mask and Value.
