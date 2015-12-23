@@ -6,9 +6,9 @@
 
 ## To compile:
 
-Teensy 3.1/3.2 - set Tools -> Clock Speed to 96 MHz optimized (overclock)
-Teensy 3.0 - set Tools -> Clock Speed to 96 MHz (overclock)
-Teensy LC - set Tools -> Clock Speed to 48 MHz
+* Teensy 3.1/3.2 - set Tools -> Clock Speed to 96 MHz optimized (overclock)
+* Teensy 3.0 - set Tools -> Clock Speed to 96 MHz (overclock)
+* Teensy LC - set Tools -> Clock Speed to 48 MHz
 
 If you don't have any signals to connect, you can uncomment the $define CREATE_TEST_FREQUENCIES line to generate test signals. This will output PWN signals on certain pins. No jumpering of pins is necssary to see the data.
 
@@ -26,13 +26,13 @@ If you don't have any signals to connect, you can uncomment the $define CREATE_T
 8. If a trigger is desired, select Triggers tab, set Enabled, set Before/After ratio, and select Mask and Value.
 9. Select Capture. Data should show up in window.
 
-Channel  Pin
-   0      2
-   1     14
-   2      7
-   3      8
-   4      6
-   5     20
-   6     21
-   7      5
+* Channel  Pin
+*    0      2
+*    1     14
+*    2      7
+*    3      8
+*    4      6
+*    5     20
+*    6     21
+*    7      5
 
