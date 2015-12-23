@@ -66,7 +66,7 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "beta2"
+#define VERSION "beta3"
 
 // Teensy 3.0
 #if defined(__MK20DX128__)
@@ -79,6 +79,12 @@
 
    // 58k buffer size
    #define LA_SAMPLE_SIZE 58 * 1024
+
+// Teensy LC
+#elif defined(__MKL26Z64__)
+
+   // 58k buffer size
+   #define LA_SAMPLE_SIZE 4 * 1024
 
 #else
 
@@ -114,8 +120,9 @@
 #pragma GCC diagnostic ignored "-Wunused-value"
 
 // this is the main data storage array. Add 10 extra bytes
-// just in case (triggering may use up to 8 extra)
-byte logicData[LA_SAMPLE_SIZE + 10];
+// just in case (triggering may use up to 8 extra).
+// Needs to be aligned to a 4 byte boundary
+byte logicData[LA_SAMPLE_SIZE + 10] __attribute__ ((aligned));
 
 enum strategyType {
   STRATEGY_NORMAL,
@@ -164,6 +171,10 @@ struct sumpVariableStruct {
   byte *startPtr;
 };
 
+void sendData (
+  struct sumpSetupVariableStruct sumpSetup,
+  struct sumpDynamicVariableStruct dynamic);
+
 void setup()
 {
   DEBUG_SERIAL(begin (1000000));  // baud rate of 1 Mbps
@@ -203,11 +214,14 @@ void setup()
 //  analogWriteFrequency (3, 1000000);
 //  analogWrite (3, 128);
 
-  analogWriteFrequency (6, 25000);
+  analogWriteFrequency (CHAN4, 25000);
   analogWrite (CHAN4, 64);
   analogWrite (CHAN5, 124);
-  analogWrite (CHAN6, 128);
-  analogWrite (CHAN7, 192);
+
+  #if defined(KINETISK)
+    analogWrite (CHAN6, 128);
+    analogWrite (CHAN7, 192);
+  #endif
 
 #endif
 
@@ -327,7 +341,11 @@ void processSingleByteCommand (byte inByte){
       } else if (F_CPU == 72000000) {
         Serial.write("Teensy72");
       } else if (F_CPU == 48000000) {
-        Serial.write("Teensy48");
+        #if defined(KINETISL)
+          Serial.write("TeensyLC48");
+        #else
+          Serial.write("Teensy48");
+        #endif
       } else {
         Serial.write("Teensy");
       }
@@ -531,24 +549,24 @@ int samplesPerElement = samplesPerByte * 4;
   }
   
 
-  sumpSetupVariableStruct setup;
+  sumpSetupVariableStruct sumpSetup;
   sumpDynamicVariableStruct dynamic;
 
-  setup.delaySamples = sv.delaySamples;
-  setup.sampleMask = sv.sampleMask;
-  setup.sampleShift = sv.sampleShift;
-  setup.samplesPerElement = sv.samplesPerByte * 4;
-  setup.samplesRequested = sumpRequestedSamples;
-  setup.samplesToRecord = sv.samplesToRecord;
-  setup.samplesToSend = sv.bufferSize;
-  setup.startOfBuffer = (uint32_t *)sv.startOfBuffer;
-  setup.endOfBuffer = (uint32_t *)sv.endOfBuffer;
+  sumpSetup.delaySamples = sv.delaySamples;
+  sumpSetup.sampleMask = sv.sampleMask;
+  sumpSetup.sampleShift = sv.sampleShift;
+  sumpSetup.samplesPerElement = sv.samplesPerByte * 4;
+  sumpSetup.samplesRequested = sumpRequestedSamples;
+  sumpSetup.samplesToRecord = sv.samplesToRecord;
+  sumpSetup.samplesToSend = sv.bufferSize;
+  sumpSetup.startOfBuffer = (uint32_t *)sv.startOfBuffer;
+  sumpSetup.endOfBuffer = (uint32_t *)sv.endOfBuffer;
 
   dynamic.triggerSampleIndex = sv.triggerSampleIndex;
 
   if (sumpRunning)
   {
-     sendData (setup, dynamic);
+     sendData (sumpSetup, dynamic);
   }
 
   SUMPreset();

@@ -38,16 +38,7 @@
 //                  necessarily the oldest sample, since the buffer can wrap
 //                  while waiting for a trigger.
 
-// to get around "parameter has incomplete type" compiler error
-struct sampleSetupStruct
-{
-  int samplesPerElement;
-  uint32_t sampleMask;
-  uint32_t sampleShift;
-  uint32_t *startOfBuffer;
-};
-
-byte getSample (struct sampleSetupStruct setup, int sampleIndex)
+byte getSample (struct sumpSetupVariableStruct setup, int sampleIndex)
 {
   uint32_t sample;
 
@@ -63,12 +54,14 @@ DEBUG_SERIAL(print(", a: "));
 DEBUG_SERIAL(print((int)arrayIndex, HEX));
 DEBUG_SERIAL(print(", e: "));
 DEBUG_SERIAL(print((int)elementIndex, HEX));
+DEBUG_SERIAL(print(", sample: "));
+DEBUG_SERIAL(print(sample, HEX));
 DEBUG_SERIAL(println(""));
   return sample;
 }
 
 void sendData (
-  struct sumpSetupVariableStruct setup,
+  struct sumpSetupVariableStruct sumpSetup,
   struct sumpDynamicVariableStruct dynamic)
 {
   int firstSampleIndex;
@@ -80,30 +73,23 @@ void sendData (
   // set unused channels to alternating 1's and 0's
   byte unusedValue = 0x55;
 
-  sampleSetupStruct sampleSetup;
-
-  sampleSetup.samplesPerElement = setup.samplesPerElement;
-  sampleSetup.sampleMask = setup.sampleMask;
-  sampleSetup.sampleShift = setup.sampleShift;
-  sampleSetup.startOfBuffer = setup.startOfBuffer;
-  
   // get first sampleIndex to send
-  firstSampleIndex = triggerSampleIndex - setup.delaySamples;
+  firstSampleIndex = triggerSampleIndex - sumpSetup.delaySamples;
 
   // get last sampleIndex to send
-  lastSampleIndex = firstSampleIndex + setup.samplesToSend - 1;
+  lastSampleIndex = firstSampleIndex + sumpSetup.samplesToSend - 1;
 
   // if buffer wrapped around
-  if (lastSampleIndex >= setup.samplesToRecord)
+  if (lastSampleIndex >= sumpSetup.samplesToRecord)
   {
-    lastSampleIndex = lastSampleIndex - setup.samplesToRecord;
+    lastSampleIndex = lastSampleIndex - sumpSetup.samplesToRecord;
     wrappedBuffer = true;
   }
 
 
   // if samples were limited, send bogus data to indicate it is done.
   // Send these first since sent backwards in time
-  for (int index = setup.samplesToSend; index < setup.samplesRequested; index = index + 2)
+  for (int index = sumpSetup.samplesToSend; index < sumpSetup.samplesRequested; index = index + 2)
   {
     // send alternating 1's and 0's
     Serial.write(0x55);
@@ -123,7 +109,7 @@ DEBUG_SERIAL(println(""));
 
   if (wrappedBuffer)
   {
-    finalIndex = setup.samplesToRecord - 1;    
+    finalIndex = sumpSetup.samplesToRecord - 1;    
   }
   else
   {
@@ -140,8 +126,8 @@ DEBUG_SERIAL(println(""));
 //DEBUG_SERIAL(println(""));
     for (int index = lastSampleIndex; index >= 0; --index)
     {
-      sample = getSample (sampleSetup, index);
-      sample = (unusedValue & ~setup.sampleMask) + (sample & setup.sampleMask);
+      sample = getSample (sumpSetup, index);
+      sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);
       Serial.write(sample);
 
       unusedValue = ~unusedValue;   // toggle 1's and 0's
@@ -150,12 +136,13 @@ DEBUG_SERIAL(println(""));
 
   for (int index = finalIndex; index >= firstSampleIndex; --index)
   {
-    sample = getSample (sampleSetup, index);
-    sample = (unusedValue & ~setup.sampleMask) + (sample & setup.sampleMask);
+    sample = getSample (sumpSetup, index);
+    sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);
     Serial.write(sample);
 
     unusedValue = ~unusedValue;   // toggle 1's and 0's
   }
 
 }
+
 
