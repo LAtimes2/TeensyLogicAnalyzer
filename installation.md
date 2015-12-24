@@ -26,13 +26,15 @@ If you don't have any signals to connect, you can uncomment the $define CREATE_T
 8. If a trigger is desired, select Triggers tab, set Enabled, set Before/After ratio, and select Mask and Value.
 9. Select Capture. Data should show up in window.
 
-* Channel  Pin
-*    0      2
-*    1     14
-*    2      7
-*    3      8
-*    4      6
-*    5     20
-*    6     21
-*    7      5
+Channel |  Pin
+:-------:|:---:
+   0    |  2
+   1    | 14
+   2    |  7
+   3    |  8
+   4    |  6
+   5    | 20
+   6    | 21
+   7    |  5
+
 
