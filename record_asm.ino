@@ -25,6 +25,7 @@
 void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                            sumpDynamicVariableStruct &dynamic) {
 
+#if not defined(__MKL26Z64__)
   volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;
   volatile uint8_t* USB0_ISTAT_register = &USB0_ISTAT;
   uint32_t *inputPtr = sv.startOfBuffer;
@@ -111,21 +112,16 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
 
   dynamic.triggerSampleIndex = 1;
 
-DEBUG_SERIAL(println(""));
-DEBUG_SERIAL(print(", inputPtr: "));
-DEBUG_SERIAL(print((int)inputPtr, HEX));
-DEBUG_SERIAL(print(", dsb: "));
-DEBUG_SERIAL(println(""));
-delay (100);
+#endif
 }
 
 void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic) {
 
+#if not defined(__MKL26Z64__)
   uint32_t *inputPtr = sv.startOfBuffer;
 
   volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;
-//  volatile uint32_t* portDataInputRegister = &SYST_CVR;
   volatile uint8_t* USB0_ISTAT_register = &USB0_ISTAT;
   uint32_t tempValue = 0;
   uint32_t workingValue = 0;
@@ -147,20 +143,6 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
 
   uint32_t data2 = (delaySizeBytes << 16) + bufferSizeBytes;
   asm volatile ("lsr %[data2],#16\n\t" : [data2] "+r" (data2));
-  
-DEBUG_SERIAL(println(""));
-DEBUG_SERIAL(print(", startPtr: "));
-DEBUG_SERIAL(print((int)startPtr, HEX));
-DEBUG_SERIAL(print(", dsb: "));
-DEBUG_SERIAL(print((int)delaySizeBytes, HEX));
-DEBUG_SERIAL(print(", bsb: "));
-DEBUG_SERIAL(print((int)bufferSizeBytes, HEX));
-DEBUG_SERIAL(print(", data1: "));
-DEBUG_SERIAL(print((int)data1, HEX));
-DEBUG_SERIAL(print(", data2: "));
-DEBUG_SERIAL(print((int)data2, HEX));
-DEBUG_SERIAL(println(""));
-delay (100);
   
   if (sv.triggerMask)
   {
@@ -434,14 +416,6 @@ delay (100);
   // adjust trigger count
   dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 
-DEBUG_SERIAL(print(", startPtr: "));
-DEBUG_SERIAL(print((int)startPtr, HEX));
-DEBUG_SERIAL(print(", triggerPtr: "));
-DEBUG_SERIAL(print((int)triggerPtr, HEX));
-DEBUG_SERIAL(print(", triggerSampleIndex: "));
-DEBUG_SERIAL(print((int)dynamic.triggerSampleIndex, HEX));
-DEBUG_SERIAL(println(""));
-delay (100);
-
+#endif
 }
 
