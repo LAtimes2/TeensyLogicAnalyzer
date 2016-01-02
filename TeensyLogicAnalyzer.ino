@@ -32,14 +32,8 @@
 //  User Configuration settings
 //
 
-//#define CREATE_TEST_FREQUENCIES  // if uncommented, it will output frequencies on pins 3 and 6
-//#define TIMING_DISCRETES  // if uncommented, set pins for timing
-
-// Debug serial port. Uncomment one of these lines
-#define DEBUG_SERIAL(x) 0   // no debug output
-//#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
-//#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
-//#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
+#define CREATE_TEST_FREQUENCIES 1  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
+#define ADVANCED_CONFIGURATION 1   // if 1, it uses the advanced OLS configuration settings
 
 //
 // Pin definitions (info only - do not change)
@@ -66,7 +60,15 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "beta3"
+#define VERSION "1.0"
+
+//#define TIMING_DISCRETES  // if uncommented, set pins for timing
+
+// Debug serial port. Uncomment one of these lines
+#define DEBUG_SERIAL(x) 0   // no debug output
+//#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
+//#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
+//#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
 
 // Teensy 3.0
 #if defined(__MK20DX128__)
@@ -156,24 +158,21 @@ enum _SUMP {
   C_PARAMETERS,
 } sumpRXstate = C_IDLE;
 
-// data to set up recording
-struct sumpVariableStruct {
-  uint32_t bufferSize;
-  uint32_t delaySamples = 0;
-  uint32_t delaySize = 0;
-  uint32_t sampleMask = 0xFF;
-  uint32_t sampleShift = 8;
-  byte samplesPerByte = 1;
-  int samplesToRecord;
-  int triggerSampleIndex = 0;
-  byte *startOfBuffer;
-  byte *endOfBuffer;
-  byte *startPtr;
-};
+// Forward declarations
+void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
+                           sumpDynamicVariableStruct &dynamic);
+void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
+                               sumpDynamicVariableStruct &dynamic);
+void recordLowSpeedData (sumpSetupVariableStruct &sv,
+                         sumpDynamicVariableStruct &dynamic);
+void sendData (sumpSetupVariableStruct sumpSetup,
+               sumpDynamicVariableStruct dynamic);
 
-void sendData (
-  struct sumpSetupVariableStruct sumpSetup,
-  struct sumpDynamicVariableStruct dynamic);
+void SUMPprocessCommands(byte inByte,
+                         struct sumpSetupVariableStruct &sumpSetup);
+
+void processFiveByteCommand (byte command[],
+                             struct sumpSetupVariableStruct &sumpSetup);
 
 void setup()
 {
@@ -201,7 +200,7 @@ void setup()
 
   blinkled();
 
-#ifdef CREATE_TEST_FREQUENCIES
+#if CREATE_TEST_FREQUENCIES == 1
 
   /* Use PWM to generate a test signal.
    *  If set on one of the analyzer pins, it will show up when recording.
@@ -210,9 +209,6 @@ void setup()
 
   // PWM available on pins 3-6,9,10,20-23
   // Port D: chan 4(6),5(20),6(21),7(5)
-
-//  analogWriteFrequency (3, 1000000);
-//  analogWrite (3, 128);
 
   analogWriteFrequency (CHAN4, 25000);
   analogWrite (CHAN4, 64);
@@ -232,6 +228,7 @@ void setup()
 void loop()
 {
   byte inByte;
+  sumpSetupVariableStruct sumpSetup;
 
   // loop forever
   while (1) {
@@ -248,18 +245,18 @@ void loop()
       DEBUG_SERIAL(print(inByte, HEX));
       DEBUG_SERIAL(print(","));
 
-      SUMPprocessCommands(inByte);
+      SUMPprocessCommands(inByte, sumpSetup);
     }
 
     // check for input from Debug port
     if (DEBUG_SERIAL(available()) > 0) {
       blinkledFast();
-      SUMPprocessCommands(DEBUG_SERIAL(read()));
+      SUMPprocessCommands(DEBUG_SERIAL(read()), sumpSetup);
     }
 
     // if commanded to start, then record data
     if (sumpRunning) {
-      SUMPrecordData();
+      SUMPrecordData(sumpSetup);
     }
 
     // blink LED every 2 seconds if not recording
@@ -275,8 +272,9 @@ void SUMPreset(void) {
   sumpRunning = 0;
 }
 
-void SUMPprocessCommands(byte inByte) {
-
+void SUMPprocessCommands(byte inByte,
+                         sumpSetupVariableStruct &sumpSetup)
+{
   switch (sumpRXstate) { //this is a state machine that grabs the incoming commands one byte at a time
 
     case C_IDLE:
@@ -291,7 +289,7 @@ void SUMPprocessCommands(byte inByte) {
       // if all parameters received
       if (sumpRX.parCnt == sumpRX.parameters)
       {
-        processFiveByteCommand (sumpRX.command);
+        processFiveByteCommand (sumpRX.command, sumpSetup);
 
         sumpRXstate = C_IDLE;
       }  
@@ -334,6 +332,9 @@ void processSingleByteCommand (byte inByte){
 
       // device name string
       Serial.write(0x01);
+#if ADVANCED_CONFIGURATION == 1
+      Serial.write("Advanced");
+#endif
       if (F_CPU == 96000000) {
         Serial.write("Teensy96");
       } else if (F_CPU == 120000000) {
@@ -407,7 +408,8 @@ void processSingleByteCommand (byte inByte){
   }
 }
 
-void processFiveByteCommand (byte command[])
+void processFiveByteCommand (byte command[],
+                             sumpSetupVariableStruct &sumpSetup)
 {
   uint32_t divisor;
 
@@ -434,6 +436,13 @@ void processFiveByteCommand (byte command[])
 
       // need this to get OLS client to line up trigger to time 0
       sumpDelaySamples += 2;
+
+      // command only supports up to 256k, but using certain assumptions, can go higher
+      if (sumpSamples == 208 * 1024)
+      {
+        // 464 is sent as 208 due to 256k wraparound
+        sumpSamples = 464 * 1024;
+      }
 
       sumpRequestedSamples = sumpSamples;
 
@@ -474,95 +483,95 @@ void processFiveByteCommand (byte command[])
 }
 
 
-void SUMPrecordData(void) {
+void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
+{
+  sumpDynamicVariableStruct dynamic;
 
-  sumpVariableStruct sv;
+  // if assembly language
+  if (sumpClockTicks <= 8)
+  {
+    // assembly only does 1 sample per byte
+    sumpNumChannels = 8;
 
-  byte samplesPerByte = 1;
-  byte sampleMask;
-  byte sampleShift;
-  
-  byte *startOfBuffer = logicData;
+    if (sumpSamples > LA_SAMPLE_SIZE)
+    {
+      // set delay to 0 if no trigger, else 50%
+      if (sumpSamples == sumpDelaySamples)
+      {
+        sumpDelaySamples = LA_SAMPLE_SIZE;
+      }
+      else
+      {
+        sumpDelaySamples = LA_SAMPLE_SIZE / 2;
+      }
 
-  byte *endOfBuffer;
-  byte *startPtr;
+      sumpSamples = LA_SAMPLE_SIZE;
+    }
+  }
 
   // setup
     switch (sumpNumChannels) {
       case 1:
-        samplesPerByte = 8;
-        sampleMask = 0x01;
-        sampleShift = 1;
+        sumpSetup.samplesPerElement = 8 * 4;
+        sumpSetup.sampleMask = 0x01;
+        sumpSetup.sampleShift = 1;
         break;
       case 2:
-        samplesPerByte = 4;
-        sampleMask = 0x03;
-        sampleShift = 2;
+        sumpSetup.samplesPerElement = 4 * 4;
+        sumpSetup.sampleMask = 0x03;
+        sumpSetup.sampleShift = 2;
         break;
       case 4:
-        samplesPerByte = 2;
-        sampleMask = 0x0F;
-        sampleShift = 4;
+        sumpSetup.samplesPerElement = 2 * 4;
+        sumpSetup.sampleMask = 0x0F;
+        sumpSetup.sampleShift = 4;
         break;
       default:
-        samplesPerByte = 1;
-        sampleMask = 0x0FF;
-        sampleShift = 8;
+        sumpSetup.samplesPerElement = 1 * 4;
+        sumpSetup.sampleMask = 0x0FF;
+        sumpSetup.sampleShift = 8;
         break;
     }
 
-  sv.bufferSize = sumpSamples / samplesPerByte;
-
-int samplesPerElement = samplesPerByte * 4;
-
-  sv.samplesToRecord = sumpSamples + 2 * samplesPerElement;
+  sumpSetup.samplesToRecord = sumpSamples + 2 * sumpSetup.samplesPerElement;
   
-  endOfBuffer = startOfBuffer + sv.samplesToRecord / samplesPerByte;
+  sumpSetup.startOfBuffer = (uint32_t *)logicData;
+  sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
   
-  sv.delaySamples = sumpSamples - sumpDelaySamples;
-  sv.delaySize = sv.delaySamples / samplesPerByte;
-  
-  // set pointer to beginning of data buffer
-  startPtr = startOfBuffer;
+  // number of samples to delay before arming the trigger
+  // (if not trigger, then this is 0)
+  sumpSetup.delaySamples = sumpSamples - sumpDelaySamples;
 
-  sv.samplesPerByte = samplesPerByte;
-  sv.startPtr = startPtr;
-  sv.endOfBuffer = endOfBuffer;
-  sv.startOfBuffer = startOfBuffer;
-  sv.sampleMask = sampleMask;
-  sv.sampleShift = sampleShift;
-  sv.triggerSampleIndex = 0;
+  // add one due to truncation
+  sumpSetup.delaySizeInElements = (sumpSetup.delaySamples / sumpSetup.samplesPerElement) + 1;
+  
+  dynamic.triggerSampleIndex = 0;
+
+  sumpSetup.triggerMask = sumpTrigMask;
+  sumpSetup.triggerValue = sumpTrigValue;
 
   // setup timer
   startTimer (sumpDivisor);
 
-  if (sumpClockTicks <= 8)
+  if (sumpClockTicks <= 5)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
+    recordDataAsm5Clocks(sumpSetup, dynamic);
+  }
+  else if (sumpClockTicks <= 8)
+  {
+    sumpStrategy = STRATEGY_ASSEMBLY;
+    recordDataAsmWithTrigger(sumpSetup, dynamic);
   }
   else
   {
     sumpStrategy = STRATEGY_NORMAL;
 
-    recordLowSpeedData (sv);
-//recordByteData (sv);
+    recordLowSpeedData (sumpSetup, dynamic);
   }
-  
 
-  sumpSetupVariableStruct sumpSetup;
-  sumpDynamicVariableStruct dynamic;
-
-  sumpSetup.delaySamples = sv.delaySamples;
-  sumpSetup.sampleMask = sv.sampleMask;
-  sumpSetup.sampleShift = sv.sampleShift;
-  sumpSetup.samplesPerElement = sv.samplesPerByte * 4;
   sumpSetup.samplesRequested = sumpRequestedSamples;
-  sumpSetup.samplesToRecord = sv.samplesToRecord;
-  sumpSetup.samplesToSend = sv.bufferSize;
-  sumpSetup.startOfBuffer = (uint32_t *)sv.startOfBuffer;
-  sumpSetup.endOfBuffer = (uint32_t *)sv.endOfBuffer;
-
-  dynamic.triggerSampleIndex = sv.triggerSampleIndex;
+  sumpSetup.samplesToSend = sumpSamples;
 
   if (sumpRunning)
   {

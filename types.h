@@ -25,12 +25,15 @@
 // data to set up recording
 struct sumpSetupVariableStruct {
   uint32_t delaySamples = 0;
+  uint32_t delaySizeInElements = 0;
   uint32_t sampleMask = 0xFF;
   uint32_t sampleShift = 8;
-  uint32_t samplesPerElement = 1;
+  uint32_t samplesPerElement = 4;
   int samplesRequested;
   int samplesToRecord;
   int samplesToSend;
+  byte triggerMask = 0;
+  byte triggerValue = 0;
   uint32_t *startOfBuffer;
   uint32_t *endOfBuffer;
 };

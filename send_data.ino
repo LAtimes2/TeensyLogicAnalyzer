@@ -38,7 +38,7 @@
 //                  necessarily the oldest sample, since the buffer can wrap
 //                  while waiting for a trigger.
 
-byte getSample (struct sumpSetupVariableStruct setup, int sampleIndex)
+byte getSample (sumpSetupVariableStruct setup, int sampleIndex)
 {
   uint32_t sample;
 
@@ -47,22 +47,12 @@ byte getSample (struct sumpSetupVariableStruct setup, int sampleIndex)
 
   sample = (setup.startOfBuffer[arrayIndex] >> (setup.sampleShift * elementIndex)) & setup.sampleMask;
 
-DEBUG_SERIAL(print((int)setup.samplesPerElement));
-DEBUG_SERIAL(print(", s: "));
-DEBUG_SERIAL(print((int)sampleIndex, HEX));
-DEBUG_SERIAL(print(", a: "));
-DEBUG_SERIAL(print((int)arrayIndex, HEX));
-DEBUG_SERIAL(print(", e: "));
-DEBUG_SERIAL(print((int)elementIndex, HEX));
-DEBUG_SERIAL(print(", sample: "));
-DEBUG_SERIAL(print(sample, HEX));
-DEBUG_SERIAL(println(""));
   return sample;
 }
 
 void sendData (
-  struct sumpSetupVariableStruct sumpSetup,
-  struct sumpDynamicVariableStruct dynamic)
+  sumpSetupVariableStruct sumpSetup,
+  sumpDynamicVariableStruct dynamic)
 {
   int firstSampleIndex;
   int lastSampleIndex;
@@ -95,14 +85,6 @@ void sendData (
     Serial.write(0x55);
     Serial.write(0xAA);
   }
-
-DEBUG_SERIAL(print("triggerSampleIndex : "));
-DEBUG_SERIAL(print((int)triggerSampleIndex, HEX));
-DEBUG_SERIAL(print(", firstSampleIndex : "));
-DEBUG_SERIAL(print((int)firstSampleIndex, HEX));
-DEBUG_SERIAL(print(", lastSampleIndex : "));
-DEBUG_SERIAL(print((int)lastSampleIndex, HEX));
-DEBUG_SERIAL(println(""));
 
   // send the data up to end of buffer
   int finalIndex;

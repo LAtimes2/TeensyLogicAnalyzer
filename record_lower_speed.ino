@@ -22,7 +22,8 @@
  * SOFTWARE.
  */
 
-void recordLowSpeedData (struct sumpVariableStruct &sv)
+void recordLowSpeedData (sumpSetupVariableStruct &sv,
+                         sumpDynamicVariableStruct &dynamic)
 {
   enum stateType {
     Buffering,
@@ -31,11 +32,11 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
     Triggered
   };
 
-  register uint32_t *inputPtr = (uint32_t *)sv.startPtr;
+  register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
-  uint32_t *startPtr = (uint32_t *)sv.startPtr;
-  byte samplesPerElement = sv.samplesPerByte * 4;
+  uint32_t *startPtr = (uint32_t *)sv.startOfBuffer;
+  byte samplesPerElement = sv.samplesPerElement;
   register byte samplesPerElementMinusOne = samplesPerElement - 1;
   register uint32_t sampleMask = sv.sampleMask;
   register uint32_t sampleShift = sv.sampleShift;
@@ -46,20 +47,13 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
 
   stateType state = Buffering;
 
-  // number of samples to delay before arming the trigger
-  // (if not trigger, then this is 0)
-  sv.delaySamples = sumpSamples - sumpDelaySamples;
-
-  // add one due to truncation
-  sv.delaySize = (sv.delaySamples / samplesPerElement) + 1;
-
   // if using a trigger
   if (sumpTrigMask)
   {
     state = Buffering;
 
     // position to arm the trigger
-    startPtr = inputPtr + sv.delaySize;
+    startPtr = inputPtr + sv.delaySizeInElements;
   }
   else
   {
@@ -118,13 +112,13 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
     if (state == LookingForTrigger)
     {
       // if trigger has occurred
-      if ((PORT_DATA_INPUT_REGISTER & sumpTrigMask) == sumpTrigValue)
+      if ((PORT_DATA_INPUT_REGISTER & sv.triggerMask) == sv.triggerValue)
       {
         triggerCount = workingCount;
         triggerPtr = inputPtr;
       
         // last location to save
-        startPtr = inputPtr - sv.delaySize;
+        startPtr = inputPtr - sv.delaySizeInElements;
 
         // move to triggered state
         state = Triggered_First_Pass;
@@ -157,7 +151,6 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
       // adjust for circular buffer wraparound at the end.
       if (startPtr < startOfBuffer)
       {
- // add 1 due to truncation?
         startPtr = startPtr + sv.samplesToRecord / samplesPerElement;
       }
 
@@ -176,10 +169,7 @@ void recordLowSpeedData (struct sumpVariableStruct &sv)
   unmaskInterrupts ();
 
   // adjust trigger count
-  sv.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
-
-  // send data back to SUMP client
-  sv.startPtr = (byte *)startPtr;
+  dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 
 }
 
