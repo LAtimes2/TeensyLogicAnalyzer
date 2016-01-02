@@ -32,8 +32,8 @@
 //  User Configuration settings
 //
 
-#define CREATE_TEST_FREQUENCIES 1  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
-#define ADVANCED_CONFIGURATION 1   // if 1, it uses the advanced OLS configuration settings
+#define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/20/21 (channels 4-7)
+#define ADVANCED_CONFIGURATION 0   // if 1, it uses the advanced OLS configuration settings
 
 //
 // Pin definitions (info only - do not change)
