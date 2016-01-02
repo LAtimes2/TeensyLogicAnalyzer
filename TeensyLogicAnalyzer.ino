@@ -60,7 +60,7 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "1.0"
+#define VERSION "1.1"
 
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
@@ -160,6 +160,8 @@ enum _SUMP {
 
 // Forward declarations
 void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
+                           sumpDynamicVariableStruct &dynamic);
+void recordDataAsm6Clocks (sumpSetupVariableStruct &sv,
                            sumpDynamicVariableStruct &dynamic);
 void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic);
@@ -553,11 +555,20 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   // setup timer
   startTimer (sumpDivisor);
 
+// Teensy LC
+#if defined(__MKL26Z64__)
+  if (sumpClockTicks <= 6)
+  {
+    sumpStrategy = STRATEGY_ASSEMBLY;
+    recordDataAsm6Clocks(sumpSetup, dynamic);
+  }
+#else
   if (sumpClockTicks <= 5)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsm5Clocks(sumpSetup, dynamic);
   }
+#endif
   else if (sumpClockTicks <= 8)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;

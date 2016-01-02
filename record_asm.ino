@@ -22,10 +22,10 @@
  * SOFTWARE.
  */
 
+#if not defined(__MKL26Z64__)
 void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                            sumpDynamicVariableStruct &dynamic) {
 
-#if not defined(__MKL26Z64__)
   volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;
   volatile uint8_t* USB0_ISTAT_register = &USB0_ISTAT;
   uint32_t *inputPtr = sv.startOfBuffer;
@@ -36,6 +36,8 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
   if (sv.triggerMask)
   {
     sv.delaySamples = 1;
+
+    set_led_on ();
   }
 
   maskInterrupts ();
@@ -53,6 +55,12 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                 // read sample
                 "ldrb %[tempValue], [%[portDataInputRegister],#0]\n\t"
                 "asm5_looking_for_trigger_loop:\n\t"
+
+                // if (usbInterruptPending)
+                "ldrb %[tempValue],[%[USB0_ISTAT_register]]\n\t"
+                "tst %[tempValue], #251\n\t"
+                "bne asm5_usb_exit\n\t"
+                
                 // save as first sample
                 "mov %[workingValue],%[tempValue]\n\t"
                 // read sample
@@ -82,7 +90,7 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                 "add %[tempValue2],%[workingValue],%[tempValue]\n\t"
                 "ldrb %[workingValue], [%[portDataInputRegister],#0]\n\t"
                 // store 4 samples
-                "str %[tempValue2], [%[inputPtr]],4\n\t"
+                "str %[tempValue2], [%[inputPtr]],#4\n\t"
                 "ldrb %[tempValue], [%[portDataInputRegister],#0]\n\t"
                 "add %[workingValue],%[tempValue],%[workingValue],lsl #8\n\t"
                 "ldrb %[tempValue], [%[portDataInputRegister],#0]\n\t"
@@ -92,9 +100,14 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                 // if inputPtr >= endOfBuffer
                 "cmp %[inputPtr],%[endOfBuffer]\n\t"
                 // store 4 samples
-                "str %[tempValue2], [%[inputPtr]],4\n\t"
+                "str %[tempValue2], [%[inputPtr]],#4\n\t"
                 "ldrb %[workingValue], [%[portDataInputRegister],#0]\n\t"
                 "blt asm5_loop\n\t"
+                "b asm5_exit\n\t"
+
+                "asm5_usb_exit:\n\t"
+                "mov %[USB0_ISTAT_register], #1\n\t"
+
                 "asm5_exit:\n\t"
 
                 : [endOfBuffer] "+l" (sv.endOfBuffer),
@@ -110,10 +123,133 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
 
   unmaskInterrupts ();
 
+  // Assembly sets the register address to 1 to indicate USB interrupt
+  if ((uint32_t)USB0_ISTAT_register == 1)
+  {
+    DEBUG_SERIAL(print(" Halt due to USB interrupt"));
+    set_led_off ();
+    SUMPreset();
+  }
+
   dynamic.triggerSampleIndex = 1;
 
-#endif
+  set_led_off ();
 }
+#else
+// Teensy LC compiler has more constraints, so it takes 6 clocks. It has fewer registers available,
+// so check for trigger using C++, then go to assembly
+void recordDataAsm6Clocks (sumpSetupVariableStruct &sv,
+                           sumpDynamicVariableStruct &dynamic) {
+
+  volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;
+  uint32_t *inputPtr = sv.startOfBuffer;
+  register uint32_t tempValue = 0;
+  uint32_t tempValue2 = 0;
+  uint32_t workingValue = 0;
+
+  if (sv.triggerMask)
+  {
+    sv.delaySamples = 1;
+
+    set_led_on ();
+  }
+
+  maskInterrupts ();
+
+  if (sv.triggerMask)
+  {
+    // read sample
+    tempValue = PORT_DATA_INPUT_REGISTER;
+
+    while (1)
+    {
+      workingValue = tempValue;
+
+      // read sample
+      tempValue = PORT_DATA_INPUT_REGISTER;
+
+      if ((tempValue & sv.triggerMask) == sv.triggerValue)
+      {
+        workingValue = tempValue + (workingValue << 8);
+        break;
+      }
+
+      // if USB interrupt pending
+      if (USB0_ISTAT & ~USB_ISTAT_SOFTOK)
+      {
+        goto USB_Exit;
+      }
+
+    }
+  }
+
+  asm volatile ("cmp %[trigMask],#0\n\t"
+                "bne asm5_third_sample\n\t"
+
+                ".align 2\n\t"
+                "asm5_record_loop:\n\t"
+                "ldr %[workingValue], [%[portDataInputRegister],#0]\n\t"
+                "asm5_loop:\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[workingValue],%[workingValue],%[tempValue]\n\t"
+                "asm5_third_sample:\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "nop\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[workingValue],%[workingValue],%[tempValue]\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "nop\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[tempValue2],%[workingValue],%[tempValue]\n\t"
+                "ldr %[workingValue], [%[portDataInputRegister],#0]\n\t"
+                // store 4 samples
+                "str %[tempValue2], [%[inputPtr]]\n\t"
+                "add %[inputPtr],%[inputPtr],#4\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[workingValue],%[workingValue],%[tempValue]\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "nop\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[workingValue],%[workingValue],%[tempValue]\n\t"
+                "ldr %[tempValue], [%[portDataInputRegister],#0]\n\t"
+                "lsl %[workingValue],%[workingValue],#8\n\t"
+                "add %[tempValue2],%[workingValue],%[tempValue]\n\t"
+                // store 4 samples
+                "str %[tempValue2], [%[inputPtr]]\n\t"
+                "add %[inputPtr],%[inputPtr],#4\n\t"
+                "ldr %[workingValue], [%[portDataInputRegister],#0]\n\t"
+                // if inputPtr >= endOfBuffer
+                "cmp %[inputPtr],%[endOfBuffer]\n\t"
+                "blt asm5_loop\n\t"
+                "asm5_exit:\n\t"
+
+                : [endOfBuffer] "+l" (sv.endOfBuffer),
+                  [inputPtr] "+l" (inputPtr),
+                  [trigMask] "+r" (sv.triggerMask),
+                  [portDataInputRegister] "+l" (portDataInputRegister),
+                  [tempValue] "+l" (tempValue),
+                  [tempValue2] "+l" (tempValue2),
+                  [workingValue] "+l" (workingValue)
+                :: "cc");
+
+  unmaskInterrupts ();
+
+  dynamic.triggerSampleIndex = 1;
+
+  set_led_off ();
+
+  return;
+
+USB_Exit:
+  unmaskInterrupts ();
+
+  DEBUG_SERIAL(print(" Halt due to USB interrupt"));
+  set_led_off ();
+  SUMPreset();
+}
+#endif
 
 void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic) {
@@ -148,6 +284,8 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   {
     // position to arm the trigger
     startPtr = inputPtr + sv.delaySizeInElements;
+
+    set_led_on ();
   }
   else
   {
@@ -412,9 +550,11 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
       triggerCount = 3;
       triggerPtr = startPtr + sv.delaySizeInElements;
   }
-      
+
   // adjust trigger count
   dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
+
+  set_led_off ();
 
 #endif
 }

@@ -1,7 +1,11 @@
 # TeensyLogicAnalyzer
 Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
-### Version 1.0.
+#### Version 1.1
+
+Adds Teensy LC Advanced configuration. 1 MHz, 8 MHz sample rates, up to 32k samples at 1 MHz. Also fixed a problem with 3.1 halt at 19.2 MHz.
+
+### Version 1.0
 
 It now compiles under Arduino 1.6.7, adds Teensy LC
 
