@@ -1,0 +1,206 @@
+Basic:
+
+3.1:
+
+compile with
+   all defines 0 except CREATE_TEST_FREQUENCIES
+   no TIMING_DISCRETES
+   Teensy 96 MHz optimized.
+
+LC pin 3 set to freq of 62500
+connect LC pin 3 to 3.1 pins 2 (ch0) and 8 (ch3).
+
+OLS: select Device type Teensy 96 MHz OLS
+  Show device metadata: Teensy96, Firmware 2.0
+
+2 MHz, 58kB, no trigger -
+   Measure ch 0,3 as 62500.
+   Measure ch 4 as 25000, 25% duty cycle.
+   Measure ch 5 as 25000, 48.7%
+   Measure ch 6 as 25000, 50%
+   Measure ch 7 as 25000, 75%
+   Look at beginning, end of trace - no garbage.
+
+2 MHz, 2kB - same
+1 MHz, 58kB - same
+100kHz, 32kB - similar. Aliasing on ch 0,3
+
+Trigger:
+2 MHz, 58 kB, 1%, ch 7 low - verify trigger is correct. start, end - no garbage.
+99%, ch 5 low, ch 6 high - verify trigger.
+ch 4 high, ch 7 low - never triggers. verify LED is on. verify can halt properly.
+
+
+LC:
+
+compile with
+   all defines 0 except CREATE_TEST_FREQUENCIES
+   no TIMING_DISCRETES
+   Teensy LC 48 MHz optimized.
+
+3.1 pin 3 set to freq of 62500
+connect 3.1 pin 3 to LC pins 2 (ch0) and 8 (ch3).
+
+OLS: select Device type Teensy LC 48 MHz OLS
+  Show device metadata: TeensyLC48, Firmware 2.0
+
+500 kHz, 4kB, no trigger -
+   Measure ch 0,3 as 62500.
+   Measure ch 4 as 25000, 25% duty cycle.
+   Measure ch 5 as 25000, 45%
+   Channels 6 and 7 are not connected - may have noise
+   Look at beginning, end of trace - no garbage.
+
+200 kHz, 2kB - similar. Aliasing on ch 0,3
+
+Trigger:
+500 kHz, 4 kB, 1%, ch 4 high - verify trigger is correct. start, end - no garbage.
+ch 4 high, ch 5 low - never triggers. verify LED is on. verify can halt properly.
+
+
+
+Advanced:
+
+3.1:
+
+compile with
+   all defines 0 except ADVANCED_CONFIGURATION, CREATE_TEST_FREQUENCIES
+   no TIMING_DISCRETES
+   Teensy 96 MHz optimized.
+
+LC pin 3 set to freq of 62500
+connect LC pin 3 to 3.1 pins 2 (ch0) and 8 (ch3).
+
+OLS: select Device type Teensy 96 MHz OLS Advanced
+  Show device metadata: AdvancedTeensy96, Firmware 2.0
+
+19.2 MHz, 58kB, no trigger -
+   Measure ch 0,3 as 62500 (approx - 62.5 is not an even multiple of 19.2).
+   Measure ch 4 as 25000, 25% duty cycle.
+   Measure ch 5 as 25000, 48.5%
+   Measure ch 6 as 25000, 50%
+   Measure ch 7 as 25000, 75%
+   Look at beginning, end of trace - no garbage.
+
+12 MHz, 2kB - same
+
+19.2, 464 - all 8 channels, only 1/8th of data (3 msec)
+2, 464 - only 1 channel has data
+2, 232 - only 2 channels have data
+2, 116 - only 4 channels have data
+
+Trigger:
+19.2 MHz, 58 kB, 0% (always at beginning), ch 7 low - verify trigger is correct. start, end - no garbage.
+12 MHz, 58 kB, 10%, ch 5 low, ch 6 high - verify trigger.
+19.2 and 12 MHz, ch 4 high, ch 7 low - never triggers. verify LED is on. verify can halt properly.
+
+
+LC:
+
+compile with
+   all defines 0 except ADVANCED_CONFIGURATION, CREATE_TEST_FREQUENCIES
+   no TIMING_DISCRETES
+   Teensy LC 48 MHz optimized.
+
+3.1 pin 3 set to freq of 62500
+connect 3.1 pin 3 to LC pins 2 (ch0) and 8 (ch3).
+
+OLS: select Device type Teensy LC 48 MHz OLS Advanced
+  Show device metadata: AdvancedTeensyLC48, Firmware 2.0
+
+8 MHz, 4kB, no trigger -
+   Measure ch 0,3 as 62500.
+   Measure ch 4 as 25000, 25% duty cycle.
+   Measure ch 5 as 25000, 48.3%
+   Channels 6 and 7 are not connected - may have noise
+   Look at beginning, end of trace - no garbage.
+
+1 MHz, 2kB - similar. Aliasing on ch 0,3
+
+8, 32 - all 8 channels, only 1/8th of data (0.5 msec)
+1, 32 - only 1 channel has data
+1, 16 - only 2 channels have data
+1,  8 - only 4 channels have data
+
+Trigger:
+8 MHz, 4 kB, 0% (always at beginning), ch 4 high - verify trigger is correct. start, end - no garbage.
+1 MHz, 4 kB, 10%, ch 4 low, ch 5 high - verify trigger.
+8 and 1 MHz, ch 4 high, ch 5 low - never triggers. verify LED is on. verify can halt properly.
+
+
+Hardware:
+
+3.1:
+
+compile with
+   all defines 0 except HARDWARE_CONFIGURATION
+   no TIMING_DISCRETES
+   Teensy 96 MHz optimized.
+
+LC pin 3 set to freq of 62500
+connect LC pin 3 to 3.1 pins 1 (ch0) and 8 (ch1).
+
+OLS: select Device type Teensy 96 MHz OLS Hardware
+  Show device metadata: HardwareTeensy96, Firmware 2.0
+
+24 MHz, 232kB, no trigger -
+   Verify 2 channels displayed
+   Measure ch 0,1 as 62500
+   Verify both channels go high and low at the same clock pulse (zoom in)
+   Look at beginning, end of trace - no garbage.
+
+12 MHz, 58kB - same
+8 MHz, 2kB - same
+
+24 MHz, 464 kB -
+   Verify 1 channel has data
+   Measure ch 0 as 62500
+
+Trigger:
+24 MHz, 232 kB, 10%, ch 0 high - verify trigger is correct. start, end - no garbage.
+12 MHz, 232 kB, 10%, ch 1 low - verify trigger.
+8 MHz, 464 kB, 10%, ch 0 low - verify trigger. [Note: won't work until a client change for large sample sizes]
+
+compile at 120 MHz optimized
+
+OLS: select Device type Teensy 120 MHz OLS Hardware
+  Show device metadata: HardwareTeensy120, Firmware 2.0
+
+30 MHz, 232kB, no trigger -
+   Verify 2 channels displayed
+   Measure ch 0,1 as 62500
+   Verify both channels go high and low at the same clock pulse (zoom in)
+   Look at beginning, end of trace - no garbage.
+
+
+LC:
+
+compile with
+   all defines 0 except HARDWARE_CONFIGURATION
+   no TIMING_DISCRETES
+   Teensy LC 48 MHz optimized.
+
+3.1 pin 3 set to freq of 62500
+connect 3.1 pin 3 to LC pins 1 (ch0) and 8 (ch1).
+
+OLS: select Device type Teensy LC 48 MHz OLS Hardware
+  Show device metadata: HardwareTeensyLC48, Firmware 2.0
+
+12 MHz, 16kB, no trigger -
+   Verify 2 channels displayed
+   Measure ch 0,1 as 62500
+   Verify both channels go high and low at the same clock pulse (zoom in)
+   Look at beginning, end of trace - no garbage.
+
+6 MHz, 8kB - same
+4 MHz, 2kB - same
+
+24 MHz, 32 kB -
+   Verify 1 channel has data
+   Measure ch 0 as 62500
+
+Trigger:
+24 MHz, 32 kB, 0% (always at beginning), ch 0 high - verify trigger is correct. start, end - no garbage.
+12 MHz, 32 kB, 10%, ch 0 low - verify trigger.
+12 MHz, 16 kB, 0% (always at beginning), ch 1 low - verify trigger
+6 MHz, 16 kB, 10%, ch 1 low - verify trigger

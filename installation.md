@@ -4,6 +4,9 @@
 2. Get a sump GUI. I use Logic Sniffer (ols.lxtreme.nl). Download the latest zip file and unzip to any directory. Requires Java JRE to be installed.
 3. If using Logic Sniffer, copy the configuration files from TeensyLogicAnalyzer/LogicSniffer to ols-0.9.7.2/plugins
 
+## To load Teensy Hex file (no need to compile):
+* Run Teensy or TyQt to load desired file from Hex directory
+
 ## To compile:
 
 * Teensy 3.1/3.2 - set Tools -> Clock Speed to 96 MHz optimized (overclock)
@@ -27,6 +30,8 @@ If you don't have any signals to connect, you can change the $define CREATE_TEST
 7. If a trigger is desired, select Triggers tab, set Enabled, set Before/After ratio, and select Mask and Value.
 8. Select Capture. Data should show up in window.
 
+Basic/Advanced pinout:
+
 Channel |  Pin
 :-------:|:---:
    0    |  2
@@ -38,4 +43,11 @@ Channel |  Pin
    6    | 21
    7    |  5
 
-See Users_Guide.pdf for more details and how to build/use Advanced configurations.
+Hardware pinout:
+
+Channel |  Pin
+:-------:|:---:
+   0    |  1
+   1    |  8
+
+See Users_Guide.pdf for more details and how to build/use Advanced and Hardware configurations.

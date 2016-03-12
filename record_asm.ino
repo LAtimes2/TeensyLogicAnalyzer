@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2015 LAtimes2
+ * Copyright (c) 2016 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-#if not defined(__MKL26Z64__)
+#if not Teensy_LC
 void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                            sumpDynamicVariableStruct &dynamic) {
 
@@ -254,7 +254,7 @@ USB_Exit:
 void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic) {
 
-#if not defined(__MKL26Z64__)
+#if not Teensy_LC
   uint32_t *inputPtr = sv.startOfBuffer;
 
   volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;

@@ -22,10 +22,32 @@
  * SOFTWARE.
  */
 
+enum stateType {
+  Buffering,
+  LookingForTrigger,
+  Triggered_First_Pass,
+  Triggered
+};
+
+enum TriggerType {
+  Channel0High,
+  Channel0Low,
+  Channel1High,
+  Channel1Low,
+  BothChannelsHigh,
+  BothChannelsLow,
+  HighLow,
+  LowHigh
+};
+  
 // data to set up recording
 struct sumpSetupVariableStruct {
+  uint32_t busClockDivisor;
+  uint32_t cpuClockTicks;
+  uint32_t clockFrequency;
   uint32_t delaySamples = 0;
   uint32_t delaySizeInElements = 0;
+  uint32_t numberOfChannels = 8;
   uint32_t sampleMask = 0xFF;
   uint32_t sampleShift = 8;
   uint32_t samplesPerElement = 4;
@@ -40,6 +62,6 @@ struct sumpSetupVariableStruct {
 
 // data that changes while recording
 struct sumpDynamicVariableStruct {
-  int triggerSampleIndex;
+  uint32_t triggerSampleIndex;
 };
 

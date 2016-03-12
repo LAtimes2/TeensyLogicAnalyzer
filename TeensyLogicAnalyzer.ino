@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2015 LAtimes2
+ * Copyright (c) 2016 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -24,7 +24,7 @@
 
 // Resources used:
 //   PIT timer 0
-//   Port D pins
+//   Port D pins or SPI MISO pins
 //   Serial : interface to SUMP user interface
 //   Serial1/2/3 : debug info (if turned on)
 
@@ -32,12 +32,20 @@
 //  User Configuration settings
 //
 
-#define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/20/21 (channels 4-7)
+#define HARDWARE_CONFIGURATION 0    // if 1, it will use the SPI input(s) instead of Port D
 #define ADVANCED_CONFIGURATION 0   // if 1, it uses the advanced OLS configuration settings
+#define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
 
 //
 // Pin definitions (info only - do not change)
 //
+
+#if HARDWARE_CONFIGURATION
+
+#define CHAN0 1   // or 26 (3.1) / 5 (LC)
+#define CHAN1 8   // or 12
+
+#else
 
 #define CHAN0 2
 #define CHAN1 14
@@ -47,6 +55,8 @@
 #define CHAN5 20
 #define CHAN6 21
 #define CHAN7 5
+
+#endif
 
 #define LED_PIN 13
 
@@ -60,7 +70,7 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "1.1"
+#define VERSION "2.0"
 
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
@@ -70,10 +80,23 @@
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
 //#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
 
+// define the various types of Teensy's
+
+// Teensy 3.0
+#if defined(__MK20DX128__)
+  #define Teensy_3_0 1
+// Teensy 3.1
+#elif defined(__MK20DX256__)
+  #define Teensy_3_1 1
+// Teensy LC
+#elif defined(__MKL26Z64__)
+  #define Teensy_LC 1
+#endif
+
 // Teensy 3.0
 #if defined(__MK20DX128__)
 
-   // 10k buffer size
+   // 12k buffer size
    #define LA_SAMPLE_SIZE 12 * 1024
 
 // Teensy 3.1
@@ -82,15 +105,14 @@
    // 58k buffer size
    #define LA_SAMPLE_SIZE 58 * 1024
 
-// Teensy LC
-#elif defined(__MKL26Z64__)
+#elif Teensy_LC
 
-   // 58k buffer size
+   // 4k buffer size
    #define LA_SAMPLE_SIZE 4 * 1024
 
 #else
 
-   // 5k buffer size
+   // 4k buffer size
    #define LA_SAMPLE_SIZE 4 * 1024
 
 #endif
@@ -167,6 +189,8 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic);
 void recordLowSpeedData (sumpSetupVariableStruct &sv,
                          sumpDynamicVariableStruct &dynamic);
+void recordSPIData (sumpSetupVariableStruct &sv,
+                    sumpDynamicVariableStruct &dynamic);
 void sendData (sumpSetupVariableStruct sumpSetup,
                sumpDynamicVariableStruct dynamic);
 
@@ -181,6 +205,12 @@ void setup()
   DEBUG_SERIAL(begin (1000000));  // baud rate of 1 Mbps
   DEBUG_SERIAL(println("Logic Analyzer"));
 
+#if HARDWARE_CONFIGURATION
+  // set up pins to record data on
+  pinMode(CHAN0, INPUT);
+  pinMode(CHAN1, INPUT);
+
+#else
   // set up pins to record data on
   pinMode(CHAN0, INPUT);
   pinMode(CHAN1, INPUT);
@@ -190,6 +220,8 @@ void setup()
   pinMode(CHAN5, INPUT);
   pinMode(CHAN6, INPUT);
   pinMode(CHAN7, INPUT);
+
+#endif
 
   pinMode(LED_PIN, OUTPUT);
 
@@ -212,15 +244,21 @@ void setup()
   // PWM available on pins 3-6,9,10,20-23
   // Port D: chan 4(6),5(20),6(21),7(5)
 
-  analogWriteFrequency (CHAN4, 25000);
-  analogWrite (CHAN4, 64);
-  analogWrite (CHAN5, 124);
+  analogWriteFrequency (3, 62500);
+  analogWrite (3, 128);
 
-  #if defined(KINETISK)
-    analogWrite (CHAN6, 128);
-    analogWrite (CHAN7, 192);
+
+  #if not HARDWARE_CONFIGURATION
+
+    analogWriteFrequency (CHAN4, 25000);
+    analogWrite (CHAN4, 64);
+    analogWrite (CHAN5, 124);
+
+    #if defined(KINETISK)
+      analogWrite (CHAN6, 128);
+      analogWrite (CHAN7, 192);
+    #endif
   #endif
-
 #endif
 
   SUMPreset();
@@ -230,7 +268,7 @@ void setup()
 void loop()
 {
   byte inByte;
-  sumpSetupVariableStruct sumpSetup;
+  struct sumpSetupVariableStruct sumpSetup;
 
   // loop forever
   while (1) {
@@ -334,7 +372,9 @@ void processSingleByteCommand (byte inByte){
 
       // device name string
       Serial.write(0x01);
-#if ADVANCED_CONFIGURATION == 1
+#if HARDWARE_CONFIGURATION == 1
+      Serial.write("Hardware");
+#elif ADVANCED_CONFIGURATION == 1
       Serial.write("Advanced");
 #endif
       if (F_CPU == 96000000) {
@@ -386,7 +426,7 @@ void processSingleByteCommand (byte inByte){
       //   xflow=0;
       break;
 
-    // special command for debugging
+    // special commands for debugging
     case '1':
       DEBUG_SERIAL(write ("sumpSamples: "));
       DEBUG_SERIAL(println (sumpSamples));
@@ -398,6 +438,63 @@ void processSingleByteCommand (byte inByte){
       DEBUG_SERIAL(println (sumpFrequency));
       DEBUG_SERIAL(write ("sumpClockTicks: "));
       DEBUG_SERIAL(println (sumpClockTicks));
+      break;
+
+    case 'r':
+      sumpSamples = 2048;
+      sumpRequestedSamples = sumpSamples;
+      sumpDelaySamples = 0;
+
+      sumpDivisor = 7;
+
+      sumpFrequency = F_BUS / (sumpDivisor + 1);
+      sumpClockTicks = F_CPU / sumpFrequency;
+
+      set_led_on (); // ARMED, turn on LED
+
+      // tell data recorder to start
+      sumpRunning = 1;
+      break;
+
+    // special command for debugging
+    case '5':
+/* uses lots of RAM
+      Serial.write ("logicData: ");
+      Serial.print (logicData[0], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[1], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[2], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[3], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[4], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[5], HEX);
+      Serial.print (", ");
+      Serial.print (logicData[6], HEX);
+      Serial.print (", ");
+      Serial.println (logicData[7], HEX);
+      Serial.write ("logicData (32): ");
+      Serial.println ((uint32_t)(*(uint32_t *)logicData), HEX);
+
+Serial.print("SOB : ");
+Serial.print((int)TMPstartOfBuffer, HEX);
+Serial.print(", EOB : ");
+Serial.print((int)TMPendOfBuffer, HEX);
+Serial.print(", triggerSampleIndex : ");
+Serial.print((int)TMPtriggerSampleIndex, HEX);
+Serial.print(", firstSampleIndex : ");
+Serial.print((int)TMPfirstSampleIndex, HEX);
+Serial.print(", lastSampleIndex : ");
+Serial.print((int)TMPlastSampleIndex, HEX);
+Serial.println("");
+*/
+      break;
+
+    // <cr>, <lf> - ignore
+    case 0x0D:
+    case 0x0A:
       break;
 
     default: // 5-byte command
@@ -489,6 +586,24 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 {
   sumpDynamicVariableStruct dynamic;
 
+#if HARDWARE_CONFIGURATION
+
+  // only 2 SPI channels
+  if (sumpNumChannels > 2)
+  {
+    sumpNumChannels = 2;
+  }
+
+  #if Teensy_LC
+    if (sumpClockTicks <= 2)
+    {
+      // only SPI1 can go up to 24 MHz
+      sumpNumChannels = 1;
+    }
+  #endif
+
+#else
+
   // if assembly language
   if (sumpClockTicks <= 8)
   {
@@ -511,52 +626,75 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     }
   }
 
+#endif
+
   // setup
-    switch (sumpNumChannels) {
-      case 1:
-        sumpSetup.samplesPerElement = 8 * 4;
-        sumpSetup.sampleMask = 0x01;
-        sumpSetup.sampleShift = 1;
-        break;
-      case 2:
-        sumpSetup.samplesPerElement = 4 * 4;
-        sumpSetup.sampleMask = 0x03;
-        sumpSetup.sampleShift = 2;
-        break;
-      case 4:
-        sumpSetup.samplesPerElement = 2 * 4;
-        sumpSetup.sampleMask = 0x0F;
-        sumpSetup.sampleShift = 4;
-        break;
-      default:
-        sumpSetup.samplesPerElement = 1 * 4;
-        sumpSetup.sampleMask = 0x0FF;
-        sumpSetup.sampleShift = 8;
-        break;
-    }
+  switch (sumpNumChannels) {
+    case 1:
+      sumpSetup.samplesPerElement = 8 * 4;
+      sumpSetup.sampleMask = 0x01;
+      sumpSetup.sampleShift = 1;
+      break;
+    case 2:
+      sumpSetup.samplesPerElement = 4 * 4;
+      sumpSetup.sampleMask = 0x03;
+      sumpSetup.sampleShift = 2;
+      break;
+    case 4:
+      sumpSetup.samplesPerElement = 2 * 4;
+      sumpSetup.sampleMask = 0x0F;
+      sumpSetup.sampleShift = 4;
+      break;
+    default:
+      sumpSetup.samplesPerElement = 1 * 4;
+      sumpSetup.sampleMask = 0x0FF;
+      sumpSetup.sampleShift = 8;
+      break;
+  }
+
+  sumpSetup.busClockDivisor = sumpDivisor;
+  sumpSetup.cpuClockTicks = sumpClockTicks;
+  sumpSetup.clockFrequency = sumpFrequency;
+  sumpSetup.numberOfChannels = sumpNumChannels;
 
   sumpSetup.samplesToRecord = sumpSamples + 2 * sumpSetup.samplesPerElement;
+  sumpSetup.samplesRequested = sumpRequestedSamples;
+  sumpSetup.samplesToSend = sumpSamples;
+
   
   sumpSetup.startOfBuffer = (uint32_t *)logicData;
   sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
   
-  // number of samples to delay before arming the trigger
-  // (if not trigger, then this is 0)
-  sumpSetup.delaySamples = sumpSamples - sumpDelaySamples;
+  sumpSetup.triggerMask = sumpTrigMask;
+  sumpSetup.triggerValue = sumpTrigValue;
+
+  if (sumpSetup.triggerMask != 0)
+  {
+    // number of samples to delay before arming the trigger
+    // (if not trigger, then this is 0)
+    sumpSetup.delaySamples = sumpSamples - sumpDelaySamples;
+  }
+  else
+  {
+    // if no trigger mask, it can't delay
+    sumpSetup.delaySamples = 0;
+  }
 
   // add one due to truncation
   sumpSetup.delaySizeInElements = (sumpSetup.delaySamples / sumpSetup.samplesPerElement) + 1;
   
   dynamic.triggerSampleIndex = 0;
 
-  sumpSetup.triggerMask = sumpTrigMask;
-  sumpSetup.triggerValue = sumpTrigValue;
-
   // setup timer
   startTimer (sumpDivisor);
 
-// Teensy LC
-#if defined(__MKL26Z64__)
+#if HARDWARE_CONFIGURATION
+
+  recordSPIData(sumpSetup, dynamic);
+
+#else
+
+#if Teensy_LC
   if (sumpClockTicks <= 6)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
@@ -581,8 +719,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     recordLowSpeedData (sumpSetup, dynamic);
   }
 
-  sumpSetup.samplesRequested = sumpRequestedSamples;
-  sumpSetup.samplesToSend = sumpSamples;
+#endif
 
   if (sumpRunning)
   {

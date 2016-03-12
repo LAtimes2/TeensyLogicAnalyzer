@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2015 LAtimes2
+ * Copyright (c) 2016 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -25,13 +25,6 @@
 void recordLowSpeedData (sumpSetupVariableStruct &sv,
                          sumpDynamicVariableStruct &dynamic)
 {
-  enum stateType {
-    Buffering,
-    LookingForTrigger,
-    Triggered_First_Pass,
-    Triggered
-  };
-
   register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;

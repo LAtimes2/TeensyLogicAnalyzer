@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2015 LAtimes2
+ * Copyright (c) 2016 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -45,9 +45,45 @@ byte getSample (sumpSetupVariableStruct setup, int sampleIndex)
   int arrayIndex = sampleIndex / setup.samplesPerElement;
   int elementIndex = setup.samplesPerElement - (sampleIndex % setup.samplesPerElement) - 1;
 
+#if HARDWARE_CONFIGURATION
+
+  if (setup.numberOfChannels == 1)
+  {
+    // swap 16-bit values
+    elementIndex = setup.samplesPerElement - ((sampleIndex + setup.samplesPerElement/2) % setup.samplesPerElement) - 1;
+  }
+
+#endif
+
   sample = (setup.startOfBuffer[arrayIndex] >> (setup.sampleShift * elementIndex)) & setup.sampleMask;
 
   return sample;
+}
+
+void adjustTrigger (
+  sumpSetupVariableStruct setup,
+  sumpDynamicVariableStruct &dynamic)
+{
+  // look from 14 before to 15 after the current trigger index for actual trigger change
+  for (int index = -14; index <= 15; ++index)
+  {
+    // since unsigned, check for wraparound to a very large number (i.e. negative)
+    if (dynamic.triggerSampleIndex + index < 0xF0000000)
+    {
+       // if this is the trigger
+       if ((getSample (setup, dynamic.triggerSampleIndex + index) & setup.triggerMask) == setup.triggerValue)
+       {
+         dynamic.triggerSampleIndex += index;
+
+         // don't know why it needs this, but get it to align
+         if (setup.numberOfChannels == 2)
+         {
+           dynamic.triggerSampleIndex -= 1;
+         }
+         break;
+       }
+    }
+  }
 }
 
 void sendData (
@@ -56,9 +92,22 @@ void sendData (
 {
   int firstSampleIndex;
   int lastSampleIndex;
-  int triggerSampleIndex = dynamic.triggerSampleIndex;
+  uint32_t triggerSampleIndex;
   byte sample;
   bool wrappedBuffer = false;
+
+  if (sumpSetup.triggerMask)
+  {
+    adjustTrigger (sumpSetup, dynamic);
+  }
+
+  triggerSampleIndex = dynamic.triggerSampleIndex;
+
+  // make sure it didn't adjust too far
+  if (triggerSampleIndex < sumpSetup.delaySamples)
+  {
+    triggerSampleIndex = sumpSetup.delaySamples;
+  }
 
   // set unused channels to alternating 1's and 0's
   byte unusedValue = 0x55;
