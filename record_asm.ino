@@ -112,8 +112,8 @@ void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
 
                 : [endOfBuffer] "+l" (sv.endOfBuffer),
                   [inputPtr] "+l" (inputPtr),
-                  [trigMask] "+r" (sv.triggerMask),
-                  [trigValue] "+r" (sv.triggerValue),
+                  [trigMask] "+r" (sv.triggerMask[0]),
+                  [trigValue] "+r" (sv.triggerValue[0]),
                   [portDataInputRegister] "+l" (portDataInputRegister),
                   [USB0_ISTAT_register] "+l" (USB0_ISTAT_register),
                   [tempValue] "+l" (tempValue),
@@ -156,7 +156,7 @@ void recordDataAsm6Clocks (sumpSetupVariableStruct &sv,
 
   maskInterrupts ();
 
-  if (sv.triggerMask)
+  if (sv.triggerMask[0])
   {
     // read sample
     tempValue = PORT_DATA_INPUT_REGISTER;
@@ -168,7 +168,7 @@ void recordDataAsm6Clocks (sumpSetupVariableStruct &sv,
       // read sample
       tempValue = PORT_DATA_INPUT_REGISTER;
 
-      if ((tempValue & sv.triggerMask) == sv.triggerValue)
+      if ((tempValue & sv.triggerMask[0]) == sv.triggerValue[0])
       {
         workingValue = tempValue + (workingValue << 8);
         break;
@@ -227,7 +227,7 @@ void recordDataAsm6Clocks (sumpSetupVariableStruct &sv,
 
                 : [endOfBuffer] "+l" (sv.endOfBuffer),
                   [inputPtr] "+l" (inputPtr),
-                  [trigMask] "+r" (sv.triggerMask),
+                  [trigMask] "+r" (sv.triggerMask[0]),
                   [portDataInputRegister] "+l" (portDataInputRegister),
                   [tempValue] "+l" (tempValue),
                   [tempValue2] "+l" (tempValue2),
@@ -254,6 +254,8 @@ USB_Exit:
 void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic) {
 
+  // this uses 8 cpu cycles per sample
+
 #if not Teensy_LC
   uint32_t *inputPtr = sv.startOfBuffer;
 
@@ -271,16 +273,13 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   int triggerCount = samplesPerElementMinusOne;
   uint32_t *triggerPtr = startOfBuffer;
 
-  uint32_t delaySizeBytes = sv.delaySizeInElements * 4;
+  uint32_t delaySizeBytes = (sv.delaySizeInElements + 1) * 4;  // add 1 due to trigger may be late
   uint32_t bufferSizeBytes = (uint32_t)(endOfBuffer - startOfBuffer) * 4;
 
   // to preserve registers, pack delaySize and bufferSize into 1 int
   uint32_t data1 = (delaySizeBytes << 16) + bufferSizeBytes;
 
-  uint32_t data2 = (delaySizeBytes << 16) + bufferSizeBytes;
-  asm volatile ("lsr %[data2],#16\n\t" : [data2] "+r" (data2));
-  
-  if (sv.triggerMask)
+  if (sv.triggerMask[0])
   {
     // position to arm the trigger
     startPtr = inputPtr + sv.delaySizeInElements;
@@ -301,6 +300,7 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   // read enough samples prior to arming to meet the pre-trigger request
   // while (1) {
                 "pre_trigger_loop:\n\t"
+                ".align 2\n\t"
     // workingValue = PORT_DATA_INPUT_REGISTER;
                 "ldrb %[workingValue], [%[portDataInputRegister]]\n\t"
                 "nop\n\t"
@@ -420,10 +420,10 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
 
 // get just lower 16 bits
 "lsl %[data1],#16\n\t"
-                "it ls\n\t"
+                "it lo\n\t"
         // startPtr = startPtr + bufferSize;
 //                "addls %[startPtr],%[startPtr],%[bufferSize],lsl #2\n\t"
-  "addls %[startPtr],%[startPtr],%[data1],lsr #16\n\t"
+  "addlo %[startPtr],%[startPtr],%[data1],lsr #16\n\t"
       // }
 
 //                "nop\n\t"
@@ -525,8 +525,8 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                 : [endOfBuffer] "+l" (sv.endOfBuffer),
                   [inputPtr] "+l" (inputPtr),
                   [startPtr] "+l" (startPtr),
-                  [trigMask] "+r" (sv.triggerMask),
-                  [trigValue] "+r" (sv.triggerValue),
+                  [trigMask] "+r" (sv.triggerMask[0]),
+                  [trigValue] "+r" (sv.triggerValue[0]),
                   [portDataInputRegister] "+l" (portDataInputRegister),
                   [USB0_ISTAT_register] "+l" (USB0_ISTAT_register),
                   [startOfBuffer] "+r" (sv.startOfBuffer),
@@ -545,7 +545,7 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
     SUMPreset();
   }
 
-  if (sv.triggerMask)
+  if (sv.triggerMask[0])
   {
       triggerCount = 3;
       triggerPtr = startPtr + sv.delaySizeInElements;

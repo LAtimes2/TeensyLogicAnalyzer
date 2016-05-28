@@ -32,7 +32,7 @@
 //  User Configuration settings
 //
 
-#define HARDWARE_CONFIGURATION 0    // if 1, it will use the SPI input(s) instead of Port D
+#define HARDWARE_CONFIGURATION 0   // if 1, it will use the SPI input(s) instead of Port D
 #define ADVANCED_CONFIGURATION 0   // if 1, it uses the advanced OLS configuration settings
 #define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
 
@@ -70,12 +70,13 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "2.0"
+#define VERSION "3.0"
 
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
 // Debug serial port. Uncomment one of these lines
 #define DEBUG_SERIAL(x) 0   // no debug output
+//#define DEBUG_SERIAL(x) Serial.x  // debug output to USB Serial
 //#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
 //#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
@@ -93,15 +94,12 @@
   #define Teensy_LC 1
 #endif
 
-// Teensy 3.0
-#if defined(__MK20DX128__)
+#if Teensy_3_0
 
    // 12k buffer size
    #define LA_SAMPLE_SIZE 12 * 1024
 
-// Teensy 3.1
-#elif defined(__MK20DX256__)
-
+#elif Teensy_3_1
    // 58k buffer size
    #define LA_SAMPLE_SIZE 58 * 1024
 
@@ -136,17 +134,26 @@
 #define SUMP_DIV   0x80
 #define SUMP_CNT   0x81
 #define SUMP_FLAGS 0x82
-#define SUMP_TRIG  0xc0
-#define SUMP_TRIG_VALS 0xc1
-#define SUMP_TRIG_CONFIG 0xc2
+#define SUMP_TRIG_1_MASK   0xC0
+#define SUMP_TRIG_1_VALS   0xC1
+#define SUMP_TRIG_1_CONFIG 0xC2
+#define SUMP_TRIG_2_MASK   0xC4
+#define SUMP_TRIG_2_VALS   0xC5
+#define SUMP_TRIG_2_CONFIG 0xC6
+#define SUMP_TRIG_3_MASK   0xC8
+#define SUMP_TRIG_3_VALS   0xC9
+#define SUMP_TRIG_3_CONFIG 0xCA
+#define SUMP_TRIG_4_MASK   0xCC
+#define SUMP_TRIG_4_VALS   0xCD
+#define SUMP_TRIG_4_CONFIG 0xCE
 
 // DEBUG_SERIAL 0 causes this warning. It is not a usual warning, so ignoring it is low risk
 #pragma GCC diagnostic ignored "-Wunused-value"
 
-// this is the main data storage array. Add 10 extra bytes
-// just in case (triggering may use up to 8 extra).
+// this is the main data storage array. Add 20 extra bytes
+// just in case (triggering may use up to 16 extra).
 // Needs to be aligned to a 4 byte boundary
-byte logicData[LA_SAMPLE_SIZE + 10] __attribute__ ((aligned));
+byte logicData[LA_SAMPLE_SIZE + 20] __attribute__ ((aligned));
 
 enum strategyType {
   STRATEGY_NORMAL,
@@ -162,8 +169,6 @@ uint32_t sumpSamples;
 uint32_t sumpDelaySamples;
 uint32_t sumpRequestedSamples;
 uint32_t sumpRunning = 0;
-byte sumpTrigMask = 0;
-byte sumpTrigValue;
 
 uint32_t previousBlinkTime = 0;
 
@@ -202,7 +207,7 @@ void processFiveByteCommand (byte command[],
 
 void setup()
 {
-  DEBUG_SERIAL(begin (1000000));  // baud rate of 1 Mbps
+  DEBUG_SERIAL(begin (921600));  // baud rate of 1 Mbps
   DEBUG_SERIAL(println("Logic Analyzer"));
 
 #if HARDWARE_CONFIGURATION
@@ -247,7 +252,6 @@ void setup()
   analogWriteFrequency (3, 62500);
   analogWrite (3, 128);
 
-
   #if not HARDWARE_CONFIGURATION
 
     analogWriteFrequency (CHAN4, 25000);
@@ -269,6 +273,10 @@ void loop()
 {
   byte inByte;
   struct sumpSetupVariableStruct sumpSetup;
+
+  // set to no trigger initially
+  sumpSetup.triggerMask[0] = 0;
+  sumpSetup.lastTriggerLevel = 0;
 
   // loop forever
   while (1) {
@@ -372,15 +380,17 @@ void processSingleByteCommand (byte inByte){
 
       // device name string
       Serial.write(0x01);
-#if HARDWARE_CONFIGURATION == 1
+#if HARDWARE_CONFIGURATION
       Serial.write("Hardware");
-#elif ADVANCED_CONFIGURATION == 1
+#elif ADVANCED_CONFIGURATION
       Serial.write("Advanced");
 #endif
       if (F_CPU == 96000000) {
         Serial.write("Teensy96");
       } else if (F_CPU == 120000000) {
         Serial.write("Teensy120");
+      } else if (F_CPU == 144000000) {
+        Serial.write("Teensy144");
       } else if (F_CPU == 72000000) {
         Serial.write("Teensy72");
       } else if (F_CPU == 48000000) {
@@ -477,18 +487,6 @@ void processSingleByteCommand (byte inByte){
       Serial.println (logicData[7], HEX);
       Serial.write ("logicData (32): ");
       Serial.println ((uint32_t)(*(uint32_t *)logicData), HEX);
-
-Serial.print("SOB : ");
-Serial.print((int)TMPstartOfBuffer, HEX);
-Serial.print(", EOB : ");
-Serial.print((int)TMPendOfBuffer, HEX);
-Serial.print(", triggerSampleIndex : ");
-Serial.print((int)TMPtriggerSampleIndex, HEX);
-Serial.print(", firstSampleIndex : ");
-Serial.print((int)TMPfirstSampleIndex, HEX);
-Serial.print(", lastSampleIndex : ");
-Serial.print((int)TMPlastSampleIndex, HEX);
-Serial.println("");
 */
       break;
 
@@ -514,12 +512,58 @@ void processFiveByteCommand (byte command[],
 
   switch (sumpRX.command[0]) {
 
-    case SUMP_TRIG: // mask for bits to trigger on
-      sumpTrigMask = sumpRX.command[1];
+    case SUMP_TRIG_1_MASK: // mask for bits to trigger on
+      sumpSetup.triggerMask[0] = sumpRX.command[1];
+      break;
+    case SUMP_TRIG_2_MASK:
+      sumpSetup.triggerMask[1] = sumpRX.command[1];
+      break;
+    case SUMP_TRIG_3_MASK:
+      sumpSetup.triggerMask[2] = sumpRX.command[1];
+      break;
+    case SUMP_TRIG_4_MASK:
+      sumpSetup.triggerMask[3] = sumpRX.command[1];
       break;
 
-    case SUMP_TRIG_VALS: // value to trigger on
-      sumpTrigValue = sumpRX.command[1];
+    case SUMP_TRIG_1_VALS: // value to trigger on
+      sumpSetup.triggerValue[0] = sumpRX.command[1];
+      // reset to invalid value
+      sumpSetup.lastTriggerLevel = -1;
+      break;
+    case SUMP_TRIG_2_VALS:
+      sumpSetup.triggerValue[1] = sumpRX.command[1];
+      break;
+    case SUMP_TRIG_3_VALS:
+      sumpSetup.triggerValue[2] = sumpRX.command[1];
+      break;
+    case SUMP_TRIG_4_VALS:
+      sumpSetup.triggerValue[3] = sumpRX.command[1];
+      break;
+
+    case SUMP_TRIG_1_CONFIG: // trigger configuration
+      sumpSetup.triggerDelay[0] = sumpRX.command[1] + (sumpRX.command[2] << 8);
+      // set lastTriggerLevel to the first stage with the Capture bit set
+      if ((sumpRX.command[4] & 0x08) != 0 && sumpSetup.lastTriggerLevel == -1) {
+        sumpSetup.lastTriggerLevel = 0;
+      }
+      break;
+    case SUMP_TRIG_2_CONFIG:
+      sumpSetup.triggerDelay[1] = sumpRX.command[1] + (sumpRX.command[2] << 8);
+      if ((sumpRX.command[4] & 0x08) != 0 && sumpSetup.lastTriggerLevel == -1) {
+        sumpSetup.lastTriggerLevel = 1;
+      }
+      break;
+    case SUMP_TRIG_3_CONFIG:
+      sumpSetup.triggerDelay[2] = sumpRX.command[1] + (sumpRX.command[2] << 8);
+      if ((sumpRX.command[4] & 0x08) != 0 && sumpSetup.lastTriggerLevel == -1) {
+        sumpSetup.lastTriggerLevel = 2;
+      }
+      break;
+    case SUMP_TRIG_4_CONFIG:
+      sumpSetup.triggerDelay[3] = sumpRX.command[1] + (sumpRX.command[2] << 8);
+      if ((sumpRX.command[4] & 0x08) != 0 && sumpSetup.lastTriggerLevel == -1) {
+        sumpSetup.lastTriggerLevel = 3;
+      }
       break;
 
     case SUMP_CNT:
@@ -575,6 +619,18 @@ void processFiveByteCommand (byte command[],
       sumpDivisor = divisor;
 
       sumpFrequency = F_BUS / (divisor + 1);
+
+      if (F_CPU == 144000000) {
+        // increase Bus clock by 50% and Mem clock
+
+        // set F_BUS equal to F_CPU / 2
+        SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
+        // set F_MEM to F_CPU / 4 (only affects 120 and 144 MHz F_CPU)
+        SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
+
+        sumpFrequency = 72000000 / (divisor + 1);
+      }
+      
       sumpClockTicks = F_CPU / sumpFrequency;
 
       break;
@@ -628,6 +684,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 
 #endif
 
+  // if no trigger level was specified, use first trigger level
+  if (sumpSetup.lastTriggerLevel < 0) {
+    sumpSetup.lastTriggerLevel = 0;
+  }
+
   // setup
   switch (sumpNumChannels) {
     case 1:
@@ -657,7 +718,8 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   sumpSetup.clockFrequency = sumpFrequency;
   sumpSetup.numberOfChannels = sumpNumChannels;
 
-  sumpSetup.samplesToRecord = sumpSamples + 2 * sumpSetup.samplesPerElement;
+  // record 4 extra elements, for trigger adjustment later
+  sumpSetup.samplesToRecord = sumpSamples + 4 * sumpSetup.samplesPerElement;
   sumpSetup.samplesRequested = sumpRequestedSamples;
   sumpSetup.samplesToSend = sumpSamples;
 
@@ -665,10 +727,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   sumpSetup.startOfBuffer = (uint32_t *)logicData;
   sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
   
-  sumpSetup.triggerMask = sumpTrigMask;
-  sumpSetup.triggerValue = sumpTrigValue;
-
-  if (sumpSetup.triggerMask != 0)
+  if (sumpSetup.triggerMask[0] != 0)
   {
     // number of samples to delay before arming the trigger
     // (if not trigger, then this is 0)
@@ -682,7 +741,14 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 
   // add one due to truncation
   sumpSetup.delaySizeInElements = (sumpSetup.delaySamples / sumpSetup.samplesPerElement) + 1;
-  
+
+#if HARDWARE_CONFIGURATION
+  // for hardware, needs to be an even number
+  if (sumpSetup.delaySizeInElements % 2){
+    ++sumpSetup.delaySizeInElements;
+  }
+#endif
+
   dynamic.triggerSampleIndex = 0;
 
   // setup timer

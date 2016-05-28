@@ -25,7 +25,9 @@
 enum stateType {
   Buffering,
   LookingForTrigger,
+  TriggerDelay,
   Triggered_First_Pass,
+  Triggered_Second_Pass,
   Triggered
 };
 
@@ -54,8 +56,10 @@ struct sumpSetupVariableStruct {
   int samplesRequested;
   int samplesToRecord;
   int samplesToSend;
-  byte triggerMask = 0;
-  byte triggerValue = 0;
+  int lastTriggerLevel;
+  byte triggerMask[4];
+  byte triggerValue[4];
+  uint16_t triggerDelay[4];
   uint32_t *startOfBuffer;
   uint32_t *endOfBuffer;
 };

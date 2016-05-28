@@ -5,11 +5,15 @@ Three modes:
 
 * Basic (default) - I just want to record up to 8 signals at up to about 1 MHz.
 * Advanced - I want to read the users guide and get speeds up to 2 MHz on LC and 24 MHz on 3.1/3.2. And more samples when fewer channels.
-* Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 1 channel or 12 MHz, 2 channels. 3.x is 30 MHz, 2 channels. Most have full triggering capability.
+* Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 1 channel or 12 MHz, 2 channels. 3.x is 72 MHz, 2 channels. Most have full triggering capability.
 
 See installation.md for setup.
 
 See users guide for capabilities and how to use.
+
+#### Version 3.0
+
+Adds Complex Triggers (up to 4 stages). Allows edge triggers or things like 4th clock select pulse. For 3.x, increased maximum hardware speed to 72 MHz.
 
 #### Version 2.0
 

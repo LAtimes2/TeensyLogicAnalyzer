@@ -29,7 +29,9 @@ Trigger:
 2 MHz, 58 kB, 1%, ch 7 low - verify trigger is correct. start, end - no garbage.
 99%, ch 5 low, ch 6 high - verify trigger.
 ch 4 high, ch 7 low - never triggers. verify LED is on. verify can halt properly.
-
+Complex - stage 1 ch 5 high, stage 2 ch 4 low - verify trigger is on falling edge ch 4
+Complex - stage 1 ch 5 low, stage 2 ch 5 high delay 31, stage 3 ch 3 low -
+            verify trigger is on second falling edge ch 3 after ch 5 high
 
 LC:
 
@@ -106,7 +108,7 @@ compile with
 connect 3.1 pin 3 to LC pins 2 (ch0) and 8 (ch3).
 
 OLS: select Device type Teensy LC 48 MHz OLS Advanced
-  Show device metadata: AdvancedTeensyLC48, Firmware 2.0
+  Show device metadata: AdvancedTeensyLC48, Firmware 3.0
 
 8 MHz, 4kB, no trigger -
    Measure ch 0,3 as 62500.
@@ -141,7 +143,7 @@ LC pin 3 set to freq of 62500
 connect LC pin 3 to 3.1 pins 1 (ch0) and 8 (ch1).
 
 OLS: select Device type Teensy 96 MHz OLS Hardware
-  Show device metadata: HardwareTeensy96, Firmware 2.0
+  Show device metadata: HardwareTeensy96, Firmware 3.0
 
 24 MHz, 232kB, no trigger -
    Verify 2 channels displayed
@@ -149,6 +151,7 @@ OLS: select Device type Teensy 96 MHz OLS Hardware
    Verify both channels go high and low at the same clock pulse (zoom in)
    Look at beginning, end of trace - no garbage.
 
+48 MHz, 232kB - same [Note: freq is 125000 until F_BUS issue is tackled]
 12 MHz, 58kB - same
 8 MHz, 2kB - same
 
@@ -161,14 +164,40 @@ Trigger:
 12 MHz, 232 kB, 10%, ch 1 low - verify trigger.
 8 MHz, 464 kB, 10%, ch 0 low - verify trigger. [Note: won't work until a client change for large sample sizes]
 
+connect serial TX (921600 badu) to 3.1 pin 8 (ch1), LC pin 3 to 3.1 pin 1 (ch0).
+
+Trigger:
+48 MHz, 232 kB, 90%, ch 1 low - Type 5 on serial terminal, verify trigger is correct. first bit is 1.08 usec. start, end - no garbage.
+
+
 compile at 120 MHz optimized
 
+LC pin 3 set to freq of 62500
+connect LC pin 3 to 3.1 pins 1 (ch0) and 8 (ch1).
+
 OLS: select Device type Teensy 120 MHz OLS Hardware
-  Show device metadata: HardwareTeensy120, Firmware 2.0
+  Show device metadata: HardwareTeensy120, Firmware 3.0
 
 30 MHz, 232kB, no trigger -
+60 MHz, 232kB, no trigger -
+   Verify 2 channels displayed
+   Measure ch 0,1 as 62500 [Note: freq is 125000 until F_BUS issue is tackled]
+   Verify both channels go high and low at the same clock pulse (zoom in)
+   Look at beginning, end of trace - no garbage.
+
+compile at 144 MHz optimized
+
+OLS: select Device type Teensy 144 MHz OLS Hardware
+  Show device metadata: HardwareTeensy144, Firmware 3.0
+
+36 MHz, 232kB, no trigger -
    Verify 2 channels displayed
    Measure ch 0,1 as 62500
+   Verify both channels go high and low at the same clock pulse (zoom in)
+   Look at beginning, end of trace - no garbage.
+72 MHz, 232kB, no trigger -
+   Verify 2 channels displayed
+   Measure ch 0,1 as 62500 [Note: freq is 187500 until F_BUS issue is tackled]
    Verify both channels go high and low at the same clock pulse (zoom in)
    Look at beginning, end of trace - no garbage.
 

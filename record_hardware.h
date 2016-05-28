@@ -67,38 +67,26 @@ void recordSPIData_SingleChannel (sumpSetupVariableStruct &sv,
 #define SPI_SR_TXCTR_MASK 0x0000F000
 #define SPI_SR_RXCTR_MASK 0x000000F0
 
-#define SPI_FIFO_SIZE 4
+  uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
+  register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
+  register uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
+  register uint32_t *startPtr = startOfBuffer;
 
-DEBUG_SERIAL(println("starting"));
-delay (100);
+  register uint32_t sampleChan0;
 
-  uint16_t *startOfBuffer = (uint16_t *)sv.startOfBuffer;
-  register uint16_t *inputPtr = (uint16_t *)sv.startOfBuffer;
-  register uint16_t *endOfBuffer = (uint16_t *)sv.endOfBuffer;
-  register uint16_t *startPtr = startOfBuffer;
-
-  register uint16_t sampleChan0;
+  byte triggerMask = sv.triggerMask[0];
+  byte triggerValue = sv.triggerValue[0];
 
 #if MULTIPLE_CHANNELS
-  register uint16_t sampleChan1;
+  register uint32_t sampleChan1;
 
   // ignore unused channels
-  sv.triggerMask &= 0x03;
-  sv.triggerValue &= 0x03;
-
-  #if USE_TRIGGER
-  // need a constant for speed
-  const byte samplesPerElement = 8;
-  #endif
+  triggerMask &= 0x03;
+  triggerValue &= 0x03;
 #else
   // ignore unused channels
-  sv.triggerMask &= 0x01;
-  sv.triggerValue &= 0x01;
-
-  #if USE_TRIGGER
-  // need a constant for speed
-  const byte samplesPerElement = 16;
-  #endif
+  triggerMask &= 0x01;
+  triggerValue &= 0x01;
 #endif
 
 #if USE_TRIGGER || USE_PRE_TRIGGER
@@ -106,21 +94,20 @@ delay (100);
   TriggerType triggerType = Channel0Low;
 
 #if USE_TRIGGER
-  byte samplesPerElementMinusOne = samplesPerElement - 1;
+  int elementsToRecord = sv.samplesToRecord / sv.samplesPerElement;
+  byte samplesPerElementMinusOne = sv.samplesPerElement - 1;
   register stateType state = Buffering;
   bool triggered = false;
-  int triggerCount = samplesPerElementMinusOne;
-  uint16_t *triggerPtr = startPtr;
 #endif
 
   // if using a trigger
-  if (sv.triggerMask)
+  if (triggerMask)
   {
 #if USE_TRIGGER
     state = Buffering;
 
-    // position to arm the trigger
-    startPtr = inputPtr + sv.delaySizeInElements * 2;
+    // position to arm the trigger (add 6 to clear FIFO at start)
+    startPtr = inputPtr + sv.delaySizeInElements + 6;
 #else  // pre-trigger
 
     // set delay to 0
@@ -128,17 +115,18 @@ delay (100);
     sv.delaySizeInElements = 0;
 
     // position to stop recording
+    // (assumes multiple of 2 ints')
     startPtr = endOfBuffer;
 #endif  
 
-    if (sv.triggerMask == 1 && sv.triggerValue == 0) triggerType = Channel0Low;
-    if (sv.triggerMask == 1 && sv.triggerValue == 1) triggerType = Channel0High;
-    if (sv.triggerMask == 2 && sv.triggerValue == 0) triggerType = Channel1Low;
-    if (sv.triggerMask == 2 && sv.triggerValue == 2) triggerType = Channel1High;
-    if (sv.triggerMask == 3 && sv.triggerValue == 0) triggerType = BothChannelsLow;
-    if (sv.triggerMask == 3 && sv.triggerValue == 1) triggerType = HighLow;
-    if (sv.triggerMask == 3 && sv.triggerValue == 2) triggerType = LowHigh;
-    if (sv.triggerMask == 3 && sv.triggerValue == 3) triggerType = BothChannelsHigh;  
+    if (triggerMask == 1 && triggerValue == 0) triggerType = Channel0Low;
+    if (triggerMask == 1 && triggerValue == 1) triggerType = Channel0High;
+    if (triggerMask == 2 && triggerValue == 0) triggerType = Channel1Low;
+    if (triggerMask == 2 && triggerValue == 2) triggerType = Channel1High;
+    if (triggerMask == 3 && triggerValue == 0) triggerType = BothChannelsLow;
+    if (triggerMask == 3 && triggerValue == 1) triggerType = HighLow;
+    if (triggerMask == 3 && triggerValue == 2) triggerType = LowHigh;
+    if (triggerMask == 3 && triggerValue == 3) triggerType = BothChannelsHigh;  
   }
   else
   {
@@ -159,44 +147,6 @@ delay (100);
     startPtr = endOfBuffer - 2;
   }
 
-/*
-digitalWriteFast (TIMING_PIN_0, HIGH);
-#if USE_PRE_TRIGGER
-  uint16_t sample_chan0;
-  uint16_t sample_chan1;
-  bool done = false;
-
-  pinMode(CHAN0, INPUT);
-  pinMode(CHAN1, INPUT);
-
-  maskInterrupts ();
-
-  while (!done)
-  {
-    sample_chan0 = (digitalReadFast (CHAN0) ? 0xFFFF : 0);
-    sample_chan1 = (digitalReadFast (CHAN1) ? 0xFFFF : 0);
-digitalWriteFast (TIMING_PIN_0, LOW);
-
-    done = checkTrigger (
-      triggerType,
-      sample_chan0,
-      sample_chan1);
-
-digitalWriteFast (TIMING_PIN_0, HIGH);
-        // if any data is received from PC, then stop (assume it is a reset)
-        if (usbInterruptPending ())
-        {
-          DEBUG_SERIAL(print(" Halt due to USB interrupt"));
-          set_led_off ();
-          SUMPreset();
-          unmaskInterrupts ();
-digitalWriteFast (TIMING_PIN_0, LOW);
-          return;
-        }
-  }
-#endif
-digitalWriteFast (TIMING_PIN_0, LOW);
-*/  
   spi1Initialize ();
   spi1Setup (sv.clockFrequency);
 
@@ -207,10 +157,7 @@ digitalWriteFast (TIMING_PIN_0, LOW);
   }
   #endif
 
-DEBUG_SERIAL(print("\n inputPtr : "));
-DEBUG_SERIAL(print((int)inputPtr, HEX));
-DEBUG_SERIAL(print(", startPtr : "));
-DEBUG_SERIAL(print((int)startPtr, HEX));
+
 
   maskInterrupts ();
 
@@ -225,7 +172,7 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
   bool done = false;
 
   // if using a trigger
-  if (sv.triggerMask)
+  if (sv.triggerMask[0])
   {
     while (!done)
     {
@@ -267,13 +214,26 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
 #if Teensy_LC
 
     // if data is ready to read
-    if (SPI1_S & SPI_S_SPRF)
-// No FIFO: SPRF, FIFO: !RFIFOEF
+    if (SPI1_S & SPI_S_SPRF) {
+      sampleChan0 = SPI1_DL | (SPI1_DH << 8);
 
-    {
-#undef TIMING_DISCRETES
-//////digitalWriteFast (TIMING_PIN_0, HIGH);
-      *(inputPtr) = sampleChan0 = SPI1_DL | (SPI1_DH << 8);
+      spi1StartTransfer ();
+
+      #if MULTIPLE_CHANNELS
+      {
+        // clear status
+        SPI0_S;
+
+        sampleChan1 = SPI0_DL | (SPI0_DH << 8);
+
+        spi0StartTransfer ();
+      }
+      #endif
+
+      // wait until data is ready to read
+      while (!(SPI1_S & SPI_S_SPRF));
+
+      *(inputPtr) = sampleChan0 = (sampleChan0 << 16) + SPI1_DL + (SPI1_DH << 8);
       ++inputPtr;
 
       spi1StartTransfer ();
@@ -283,29 +243,32 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
         // clear status
         SPI0_S;
 
-        *(inputPtr) = sampleChan1 = SPI0_DL | (SPI0_DH << 8);
+        *(inputPtr) = sampleChan1 = (sampleChan1 << 16) + SPI0_DL + (SPI0_DH << 8);
         ++inputPtr;
 
         spi0StartTransfer ();
       }
       #endif
-
+ 
 #else
 
-    // if data is ready to read
-    if (SPI1_SR & SPI_SR_RXCTR_MASK)
+    // if at least 2 data values are ready to read
+    // (for speed, want constant mask of 0E0, so 'and' 0F0 and 1E0)
+    if (SPI1_SR & SPI_SR_RXCTR_MASK & (SPI_SR_RXCTR_MASK << 1))
     {
-      *(inputPtr) = sampleChan0 = SPI1_POPR;
+      *(inputPtr) = sampleChan0 = (SPI1_POPR << 16) + SPI1_POPR;
       ++inputPtr;
 
       // start next transfer
       SPI1_PUSHR = SPI_PUSHR_CONT;
+      SPI1_PUSHR = SPI_PUSHR_CONT;
 
       #if MULTIPLE_CHANNELS
       {
-        *(inputPtr) = sampleChan1 = SPI0_POPR;
+        *(inputPtr) = sampleChan1 = (SPI0_POPR << 16) + SPI0_POPR;
         ++inputPtr;
 
+        SPI0_PUSHR = SPI_PUSHR_CONT;
         SPI0_PUSHR = SPI_PUSHR_CONT;
       }
       #endif
@@ -321,7 +284,7 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
       // adjust for circular buffer wraparound at the end
       if (inputPtr >= endOfBuffer)
       {
-        inputPtr = (uint16_t *)sv.startOfBuffer;
+        inputPtr = sv.startOfBuffer;
 
         // if any data is received from PC, then stop (assume it is a reset)
         if (usbInterruptPending ())
@@ -343,26 +306,26 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
               triggered = (sampleChan0 != 0);
               break;
             case Channel0Low:
-              triggered = sampleChan0 != 0xFFFF;
+              triggered = sampleChan0 != 0xFFFFFFFF;
               break;
 #if MULTIPLE_CHANNELS
             case Channel1High:
               triggered = sampleChan1 != 0;
               break;
             case Channel1Low:
-              triggered = sampleChan1 != 0xFFFF;
+              triggered = sampleChan1 != 0xFFFFFFFF;
               break;
             case BothChannelsHigh:
               triggered = (sampleChan0 & sampleChan1) != 0;
               break;
             case BothChannelsLow:
-              triggered = (sampleChan0 | sampleChan1) != 0xFFFF;
+              triggered = (sampleChan0 | sampleChan1) != 0xFFFFFFFF;
               break;
             case HighLow:
               triggered = (sampleChan0 & ~sampleChan1) != 0;
               break;
             case LowHigh:
-              triggered = (sampleChan0 | ~sampleChan1) != 0xFFFF;
+              triggered = (sampleChan0 | ~sampleChan1) != 0xFFFFFFFF;
               break;
 #endif
             default:
@@ -370,15 +333,15 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
           }
           if (triggered)
           {
-            triggerCount = 0;  // for speed; adjust after recorded
-            triggerPtr = inputPtr - 2;
-
-            // last location to save
-            startPtr = triggerPtr - sv.delaySizeInElements * 2;
+            // subtract 2 since inputPtr has already been incremented
+            startPtr = inputPtr - 2 - sv.delaySizeInElements;
 
             // move to triggered state
             state = Triggered_First_Pass;
           }
+          break;
+
+        case TriggerDelay :
           break;
 
         case Triggered :
@@ -404,12 +367,15 @@ DEBUG_SERIAL(print((int)startPtr, HEX));
           break;
 
         case Triggered_First_Pass :
+          // go as fast as possible to try to catch up from Triggered state
+          state = Triggered_Second_Pass;
+          break;
+
+        case Triggered_Second_Pass :
           // adjust for circular buffer wraparound at the end.
           if (startPtr < startOfBuffer)
           {
-            startPtr = startPtr + sv.samplesToRecord / samplesPerElement;
-            // don't know why?
-            startPtr = startPtr - 1;
+            startPtr = startPtr + elementsToRecord;
           }
 
           // move to triggered state
@@ -434,26 +400,13 @@ DoneRecording:
   unmaskInterrupts ();
 
 #if USE_TRIGGER
-  // adjust for circular buffer wraparound at the end.
-  if (triggerPtr < startOfBuffer)
-  {
-    triggerPtr = triggerPtr + sv.samplesToRecord / samplesPerElement;
-  }
-  
-  // adjust trigger count
-  dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
+  // set trigger count
+  dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * sv.samplesPerElement + samplesPerElementMinusOne;
 
-  if (sv.numberOfChannels == 1)
+  // adjust for circular buffer wraparound at the end.
+  if (dynamic.triggerSampleIndex >= (uint32_t)sv.samplesToRecord)
   {
-    // swap words
-    if ((uint32_t)triggerPtr % 2 == 0)
-    {
-      dynamic.triggerSampleIndex += 16;
-    }
-    else
-    {
-      dynamic.triggerSampleIndex -= 16;
-    }
+    dynamic.triggerSampleIndex = dynamic.triggerSampleIndex - sv.samplesToRecord;
   }
 
 #else

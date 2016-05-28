@@ -15,7 +15,7 @@
 
 It will get a warning, "Low memory available, stability problems may occur". This is ok - we want to record as much data as possible :)
 
-If you don't have any signals to connect, you can change the $define CREATE_TEST_FREQUENCIES to 1 to generate test signals. This will output PWM signals on certain pins. No jumpering of pins is necessary to see the data.
+If you don't have any signals to connect, you can change the $define CREATE_TEST_FREQUENCIES to 1 to generate test signals. This will output PWM signals on certain pins. No jumpering of pins is necessary to see the data. Output pins are 3,4,5 (and 6,7 on 3.x).
 
 ## To run:
 

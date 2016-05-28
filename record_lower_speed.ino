@@ -25,23 +25,27 @@
 void recordLowSpeedData (sumpSetupVariableStruct &sv,
                          sumpDynamicVariableStruct &dynamic)
 {
+  int elementsToRecord = sv.samplesToRecord / sv.samplesPerElement;
   register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
   uint32_t *startPtr = (uint32_t *)sv.startOfBuffer;
   byte samplesPerElement = sv.samplesPerElement;
-  register byte samplesPerElementMinusOne = samplesPerElement - 1;
+  byte samplesPerElementMinusOne = samplesPerElement - 1;
   register uint32_t sampleMask = sv.sampleMask;
   register uint32_t sampleShift = sv.sampleShift;
   int triggerCount = samplesPerElementMinusOne;
-  uint32_t *triggerPtr = startOfBuffer;
   register int workingCount = samplesPerElementMinusOne + 1;
   register uint32_t workingValue = 0;
 
-  stateType state = Buffering;
+  register stateType state = Buffering;
+  int currentTriggerLevel = 0;
+  register uint32_t triggerMask = sv.triggerMask[0];
+  register uint32_t triggerValue = sv.triggerValue[0];
+  uint32_t triggerDelay = sv.triggerDelay[0];
 
   // if using a trigger
-  if (sumpTrigMask)
+  if (sv.triggerMask[0])
   {
     state = Buffering;
 
@@ -50,7 +54,7 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
   }
   else
   {
-    state = Triggered_First_Pass;
+    state = Triggered_Second_Pass;
 
     startPtr = endOfBuffer;
   }
@@ -78,13 +82,6 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
       *(inputPtr) = workingValue;
       ++inputPtr;
 
-      waitForTimeout ();
-
-      // first value after saving workingValue doesn't need to
-      // shift previous value nor mask off extra bits. This saves
-      // time that was used saving workingValue above.
-      workingValue = PORT_DATA_INPUT_REGISTER;
-      workingCount = samplesPerElementMinusOne;
 
       // adjust for circular buffer wraparound at the end
       if (inputPtr >= endOfBuffer)
@@ -100,73 +97,141 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
           break;
         }
       }
+      
+      workingCount = samplesPerElementMinusOne;
+
+      waitForTimeout ();
+
+      // first value after saving workingValue doesn't need to
+      // shift previous value nor mask off extra bits. This saves
+      // time that was used saving workingValue above.
+      workingValue = PORT_DATA_INPUT_REGISTER;
+
     }  // if workingCount == 0
 
+    // this state cannot afford enough time for the switch statement
     if (state == LookingForTrigger)
     {
       // if trigger has occurred
-      if ((PORT_DATA_INPUT_REGISTER & sv.triggerMask) == sv.triggerValue)
-      {
-        triggerCount = workingCount;
-        triggerPtr = inputPtr;
+      if ((workingValue & triggerMask) == triggerValue) {
+
+        if (triggerDelay > 0) {
+          state = TriggerDelay;
+        } else {
+          // if last trigger level
+          if (currentTriggerLevel >= sv.lastTriggerLevel) {
+
+            triggerCount = workingCount;
       
-        // last location to save
-        startPtr = inputPtr - sv.delaySizeInElements;
+            // last location to save
+            startPtr = inputPtr - sv.delaySizeInElements;
 
-        // move to triggered state
-        state = Triggered_First_Pass;
+            // move to triggered state
+            state = Triggered_First_Pass;
+
+            #ifdef TIMING_DISCRETES
+              digitalWriteFast (TIMING_PIN_1, LOW);
+            #endif
+
+          } else {
+
+            // advance to next trigger level
+            ++currentTriggerLevel;
+            triggerMask = sv.triggerMask[currentTriggerLevel];
+            triggerValue = sv.triggerValue[currentTriggerLevel];
+          }
+        }
       }
-    }
-    else if (state == Triggered)
-    {
-      if (inputPtr == startPtr)
-      {
-        // done recording
+    } else {
+
+      switch (state) {
+        case LookingForTrigger :
+        // already done above
         break;
-      }
-    }
-    else if (state == Buffering)
-    {
-      // if enough data is buffered
-      if (inputPtr >= startPtr)
-      {
-        // move to armed state
-        state = LookingForTrigger;
-        set_led_on ();
 
-        #ifdef TIMING_DISCRETES
-          digitalWriteFast (TIMING_PIN_1, HIGH);
-        #endif
-      }
-    }
-    else if (state == Triggered_First_Pass)
-    {
-      // adjust for circular buffer wraparound at the end.
-      if (startPtr < startOfBuffer)
-      {
-        startPtr = startPtr + sv.samplesToRecord / samplesPerElement;
-      }
+        case TriggerDelay :
+          --triggerDelay;
+          if (triggerDelay == 0) {
+            // if last trigger level
+            if (currentTriggerLevel >= sv.lastTriggerLevel) {
+              triggerCount = workingCount;
+      
+              // last location to save
+              startPtr = inputPtr - sv.delaySizeInElements;
 
-      // move to triggered state
-      state = Triggered;
-      set_led_off (); // TRIGGERED, turn off LED
+              // move to triggered state
+              state = Triggered_First_Pass;
 
-      #ifdef TIMING_DISCRETES
-        digitalWriteFast (TIMING_PIN_1, LOW);
-      #endif
-    }
+            } else {
+              ++currentTriggerLevel;
+              triggerMask = sv.triggerMask[currentTriggerLevel];
+              triggerValue = sv.triggerValue[currentTriggerLevel];
+              triggerDelay = sv.triggerDelay[currentTriggerLevel];
+              state = LookingForTrigger;
+            }
+          }
+          break;
+
+        case Triggered:
+          if (inputPtr == startPtr) {
+            // done recording
+            goto DoneRecording;
+          }
+          break;
+
+        case Buffering:
+          // if enough data is buffered
+          if (inputPtr >= startPtr)
+          {
+            // move to armed state
+            state = LookingForTrigger;
+            set_led_on ();
+
+            #ifdef TIMING_DISCRETES
+              digitalWriteFast (TIMING_PIN_1, HIGH);
+            #endif
+          }
+          break;
+
+        case Triggered_Second_Pass:
+          // adjust for circular buffer wraparound at the end.
+          if (startPtr < startOfBuffer)
+          {
+            startPtr = startPtr + elementsToRecord;
+          }
+
+          // move to triggered state
+          state = Triggered;
+
+          #ifdef TIMING_DISCRETES
+            digitalWriteFast (TIMING_PIN_1, LOW);
+          #endif
+          break;
+
+        case Triggered_First_Pass:
+          // go as fast as possible to try to catch up from Triggered state
+          state = Triggered_Second_Pass;
+          set_led_off (); // TRIGGERED, turn off LED
+          break;
+      }
+    }  // if state == LookingForTrigger
 
   } // while (1)
+
+  DoneRecording:
 
   // cleanup
   unmaskInterrupts ();
 
   // adjust trigger count
-  dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
+  dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 
+  // adjust for circular buffer wraparound at the end.
+  if (dynamic.triggerSampleIndex >= (uint32_t)sv.samplesToRecord)
+  {
+    dynamic.triggerSampleIndex = dynamic.triggerSampleIndex - sv.samplesToRecord;
+  }
 }
-
-
 
 
 
