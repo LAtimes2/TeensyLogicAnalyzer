@@ -10,6 +10,18 @@ See installation.md for setup.
 
 See users guide for capabilities and how to use.
 
+# New updated OLS GUI is available for Windows
+
+Now you can get started on Windows in 3 easy steps:
+
+1. Download OLS (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
+
+2. Select Capture -> Begin Capture, and set Analyzer port to COM port for the Teensy
+
+3. Select Device type for your Teensy type and desired speed and hardware, then select Load Firmware
+
+When done, select Capture and you can start looking at data. For a demo on Teensy 3.1/3.2, select Teensy 96 MHz OLS Demo and channels 4-8 will have PWM data on them (be sure not to connect anything to the Teensy since these channels are outputs in Demo mode).
+
 #### Version 3.1
 
 No new functions. Preparation for new OLS GUI. Better support for sigrok. Eliminated Advanced configuration - Basic now supports it all.
