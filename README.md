@@ -1,15 +1,18 @@
 # TeensyLogicAnalyzer
 Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
-Three modes:
+Two modes:
 
-* Basic (default) - I just want to record up to 8 signals at up to about 1 MHz.
-* Advanced - I want to read the users guide and get speeds up to 2 MHz on LC and 24 MHz on 3.1/3.2. And more samples when fewer channels.
+* Basic (default) - I just want to record up to 8 signals at up to about 1 MHz. Higher speeds are available with some restrictions.
 * Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 1 channel or 12 MHz, 2 channels. 3.x is 72 MHz, 2 channels. Most have full triggering capability.
 
 See installation.md for setup.
 
 See users guide for capabilities and how to use.
+
+#### Version 3.1
+
+No new functions. Preparation for new OLS GUI. Better support for sigrok. Eliminated Advanced configuration - Basic now supports it all.
 
 #### Version 3.0
 

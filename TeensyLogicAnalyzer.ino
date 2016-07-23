@@ -33,7 +33,6 @@
 //
 
 #define HARDWARE_CONFIGURATION 0   // if 1, it will use the SPI input(s) instead of Port D
-#define ADVANCED_CONFIGURATION 0   // if 1, it uses the advanced OLS configuration settings
 #define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
 
 //
@@ -70,7 +69,7 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "3.0"
+#define VERSION "3.1"
 
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
@@ -134,6 +133,8 @@
 #define SUMP_DIV   0x80
 #define SUMP_CNT   0x81
 #define SUMP_FLAGS 0x82
+#define SUMP_CAPTURE_DELAY 0x83  // from pipistrello
+#define SUMP_CAPTURE_COUNT 0x84  // from pipistrello
 #define SUMP_TRIG_1_MASK   0xC0
 #define SUMP_TRIG_1_VALS   0xC1
 #define SUMP_TRIG_1_CONFIG 0xC2
@@ -161,15 +162,10 @@ enum strategyType {
   STRATEGY_ASSEMBLY,
 } sumpStrategy = STRATEGY_NORMAL;
 
-byte sumpNumChannels;
-uint32_t sumpDivisor;
-uint32_t sumpClockTicks;
-uint32_t sumpFrequency;
-uint32_t sumpSamples;
-uint32_t sumpDelaySamples;
-uint32_t sumpRequestedSamples;
 uint32_t sumpRunning = 0;
 
+uint32_t blinkStartTime = 0;
+uint32_t blinkEndTime = 0;
 uint32_t previousBlinkTime = 0;
 
 // working data for a 5-byte command from the SUMP Interface
@@ -202,12 +198,15 @@ void sendData (sumpSetupVariableStruct sumpSetup,
 void SUMPprocessCommands(byte inByte,
                          struct sumpSetupVariableStruct &sumpSetup);
 
+void processSingleByteCommand (byte inByte,
+                               struct sumpSetupVariableStruct &sumpSetup);
 void processFiveByteCommand (byte command[],
                              struct sumpSetupVariableStruct &sumpSetup);
 
 void setup()
 {
-  DEBUG_SERIAL(begin (921600));  // baud rate of 1 Mbps
+  DEBUG_SERIAL(begin (921600));  // set baud rate
+  DEBUG_SERIAL(println(""));
   DEBUG_SERIAL(println("Logic Analyzer"));
 
 #if HARDWARE_CONFIGURATION
@@ -239,7 +238,7 @@ void setup()
 
   blinkled();
 
-#if CREATE_TEST_FREQUENCIES == 1
+#if CREATE_TEST_FREQUENCIES
 
   /* Use PWM to generate a test signal.
    *  If set on one of the analyzer pins, it will show up when recording.
@@ -249,12 +248,22 @@ void setup()
   // PWM available on pins 3-6,9,10,20-23
   // Port D: chan 4(6),5(20),6(21),7(5)
 
-  analogWriteFrequency (3, 62500);
+  // some modes change F_BUS, so this accounts for that
+  int multiplier = 1;
+  int divider = 1;
+
+  if (F_CPU == 144000000) {
+    // F_BUS is increased by 50%
+    multiplier = 2;
+    divider = 3;
+  }
+  
+  analogWriteFrequency (3, 62500 * multiplier / divider);
   analogWrite (3, 128);
 
   #if not HARDWARE_CONFIGURATION
 
-    analogWriteFrequency (CHAN4, 25000);
+    analogWriteFrequency (CHAN4, 25000 * multiplier / divider);
     analogWrite (CHAN4, 64);
     analogWrite (CHAN5, 124);
 
@@ -281,10 +290,13 @@ void loop()
   // loop forever
   while (1) {
 
+    // NOTE: to provide quick response time (needed by sigrok), do not
+    //       call blinkLED within this loop. Use startBlink instead.
+
     // check for input from SUMP interface
     if (Serial.available() > 0) {
       // blink LED when command is received
-      blinkledFast();
+      startBlinkLEDFast();
 
       // read and process a byte from serial port
       inByte = Serial.read();
@@ -298,7 +310,7 @@ void loop()
 
     // check for input from Debug port
     if (DEBUG_SERIAL(available()) > 0) {
-      blinkledFast();
+      startBlinkLEDFast();
       SUMPprocessCommands(DEBUG_SERIAL(read()), sumpSetup);
     }
 
@@ -310,8 +322,11 @@ void loop()
     // blink LED every 2 seconds if not recording
     if ((millis() - previousBlinkTime) > 2000) {
       previousBlinkTime = millis();
-      blinkled();
+      startBlinkLED();
     }
+
+    // check if time to turn off LED
+    checkBlinkLED();
   }
 }
 
@@ -327,7 +342,7 @@ void SUMPprocessCommands(byte inByte,
 
     case C_IDLE:
 
-      processSingleByteCommand (inByte);
+      processSingleByteCommand (inByte, sumpSetup);
       break;
 
     case C_PARAMETERS:
@@ -350,7 +365,8 @@ void SUMPprocessCommands(byte inByte,
   }
 }
 
-void processSingleByteCommand (byte inByte){
+void processSingleByteCommand (byte inByte,
+                               sumpSetupVariableStruct &sumpSetup){
 
   switch (inByte) { // switch on the current byte
 
@@ -380,10 +396,11 @@ void processSingleByteCommand (byte inByte){
 
       // device name string
       Serial.write(0x01);
+#if CREATE_TEST_FREQUENCIES
+      Serial.write("Demo");
+#endif
 #if HARDWARE_CONFIGURATION
-      Serial.write("Hardware");
-#elif ADVANCED_CONFIGURATION
-      Serial.write("Advanced");
+      Serial.write("HW_");
 #endif
       if (F_CPU == 96000000) {
         Serial.write("Teensy96");
@@ -438,27 +455,27 @@ void processSingleByteCommand (byte inByte){
 
     // special commands for debugging
     case '1':
-      DEBUG_SERIAL(write ("sumpSamples: "));
-      DEBUG_SERIAL(println (sumpSamples));
+      DEBUG_SERIAL(write ("samplesToRecord: "));
+      DEBUG_SERIAL(println (sumpSetup.samplesToRecord));
       DEBUG_SERIAL(write ("sumpRequestedSamples: "));
-      DEBUG_SERIAL(println (sumpRequestedSamples));
-      DEBUG_SERIAL(write ("sumpDivisor: "));
-      DEBUG_SERIAL(println (sumpDivisor, HEX));
-      DEBUG_SERIAL(write ("sumpFrequency: "));
-      DEBUG_SERIAL(println (sumpFrequency));
-      DEBUG_SERIAL(write ("sumpClockTicks: "));
-      DEBUG_SERIAL(println (sumpClockTicks));
+      DEBUG_SERIAL(println (sumpSetup.samplesRequested));
+      DEBUG_SERIAL(write ("sumpSetup.busClockDivisor: "));
+      DEBUG_SERIAL(println (sumpSetup.busClockDivisor, HEX));
+      DEBUG_SERIAL(write ("sumpSetup.clockFrequency: "));
+      DEBUG_SERIAL(println (sumpSetup.clockFrequency));
+      DEBUG_SERIAL(write ("sumpSetup.cpuClockTicks: "));
+      DEBUG_SERIAL(println (sumpSetup.cpuClockTicks));
       break;
 
     case 'r':
-      sumpSamples = 2048;
-      sumpRequestedSamples = sumpSamples;
-      sumpDelaySamples = 0;
+      sumpSetup.samplesToRecord = 2048;
+      sumpSetup.samplesRequested = sumpSetup.samplesToRecord;
+      sumpSetup.delaySamples = 0;
 
-      sumpDivisor = 7;
+      sumpSetup.busClockDivisor = 7;
 
-      sumpFrequency = F_BUS / (sumpDivisor + 1);
-      sumpClockTicks = F_CPU / sumpFrequency;
+      sumpSetup.clockFrequency = F_BUS / (sumpSetup.busClockDivisor + 1);
+      sumpSetup.cpuClockTicks = F_CPU / sumpSetup.clockFrequency;
 
       set_led_on (); // ARMED, turn on LED
 
@@ -567,48 +584,30 @@ void processFiveByteCommand (byte command[],
       break;
 
     case SUMP_CNT:
-      sumpSamples = sumpRX.command[2];
-      sumpSamples <<= 8;
-      sumpSamples |= sumpRX.command[1];
-      sumpSamples = (sumpSamples + 1) * 4;
+      sumpSetup.samplesToRecord = sumpRX.command[2];
+      sumpSetup.samplesToRecord <<= 8;
+      sumpSetup.samplesToRecord |= sumpRX.command[1];
+      sumpSetup.samplesToRecord = (sumpSetup.samplesToRecord + 1) * 4;
 
-      sumpDelaySamples = sumpRX.command[4];
-      sumpDelaySamples <<= 8;
-      sumpDelaySamples |= sumpRX.command[3];
-      sumpDelaySamples = (sumpDelaySamples + 1) * 4;
+      sumpSetup.delaySamples = sumpRX.command[4];
+      sumpSetup.delaySamples <<= 8;
+      sumpSetup.delaySamples |= sumpRX.command[3];
+      sumpSetup.delaySamples = (sumpSetup.delaySamples + 1) * 4;
 
       // need this to get OLS client to line up trigger to time 0
-      sumpDelaySamples += 2;
+      sumpSetup.delaySamples += 2;
 
       // command only supports up to 256k, but using certain assumptions, can go higher
-      if (sumpSamples == 208 * 1024)
+      // (for clients that don't support SUMP_CAPTURE_COUNT command)
+      if (sumpSetup.samplesToRecord == 208 * 1024)
       {
         // 464 is sent as 208 due to 256k wraparound
-        sumpSamples = 464 * 1024;
+        sumpSetup.samplesToRecord = 464 * 1024;
       }
 
-      sumpRequestedSamples = sumpSamples;
-
-      // prevent buffer overruns
-      if (sumpSamples > (unsigned int) LA_SAMPLE_SIZE * 8) {
-        sumpSamples = (unsigned int) LA_SAMPLE_SIZE * 8;
-        sumpNumChannels = 1;
-      } else if (sumpSamples > LA_SAMPLE_SIZE * 4) {
-        sumpNumChannels = 1;
-      } else if (sumpSamples > LA_SAMPLE_SIZE * 2) {
-        sumpNumChannels = 2;
-      } else if (sumpSamples > LA_SAMPLE_SIZE) {
-        sumpNumChannels = 4;
-      } else {
-        sumpNumChannels = 8;
-      }
-      if (sumpDelaySamples > sumpSamples) {
-        sumpDelaySamples = sumpSamples;
-      }
       break;
 
     case SUMP_DIV:
-      divisor = 0;
       divisor = sumpRX.command[3];
       divisor <<= 8;
       divisor |= sumpRX.command[2];
@@ -616,23 +615,48 @@ void processFiveByteCommand (byte command[],
       divisor |= sumpRX.command[1];
 
       // by setting device.dividerClockspeed = F_BUS, divisor is exactly equal to value to put in timer
-      sumpDivisor = divisor;
+      sumpSetup.busClockDivisor = divisor;
 
-      sumpFrequency = F_BUS / (divisor + 1);
+      sumpSetup.clockFrequency = F_BUS / (divisor + 1);
 
       if (F_CPU == 144000000) {
         // increase Bus clock by 50% and Mem clock
 
         // set F_BUS equal to F_CPU / 2
         SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
-        // set F_MEM to F_CPU / 4 (only affects 120 and 144 MHz F_CPU)
+        // set F_MEM to F_CPU / 4
         SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
 
-        sumpFrequency = 72000000 / (divisor + 1);
+        sumpSetup.clockFrequency = 72000000 / (divisor + 1);
       }
       
-      sumpClockTicks = F_CPU / sumpFrequency;
+      sumpSetup.cpuClockTicks = F_CPU / sumpSetup.clockFrequency;
 
+      break;
+
+    case SUMP_CAPTURE_COUNT:
+      sumpSetup.samplesToRecord = sumpRX.command[4];
+      sumpSetup.samplesToRecord <<= 8;
+      sumpSetup.samplesToRecord |= sumpRX.command[3];
+      sumpSetup.samplesToRecord <<= 8;
+      sumpSetup.samplesToRecord |= sumpRX.command[2];
+      sumpSetup.samplesToRecord <<= 8;
+      sumpSetup.samplesToRecord |= sumpRX.command[1];
+      sumpSetup.samplesToRecord = (sumpSetup.samplesToRecord + 1) * 4;
+      break;
+
+    case SUMP_CAPTURE_DELAY:
+      sumpSetup.delaySamples = sumpRX.command[4];
+      sumpSetup.delaySamples <<= 8;
+      sumpSetup.delaySamples |= sumpRX.command[3];
+      sumpSetup.delaySamples <<= 8;
+      sumpSetup.delaySamples |= sumpRX.command[2];
+      sumpSetup.delaySamples <<= 8;
+      sumpSetup.delaySamples |= sumpRX.command[1];
+      sumpSetup.delaySamples = (sumpSetup.delaySamples + 1) * 4;
+
+      // need this to get OLS client to line up trigger to time 0
+      sumpSetup.delaySamples += 2;
       break;
   }
 }
@@ -642,43 +666,64 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 {
   sumpDynamicVariableStruct dynamic;
 
+  set_led_off ();
+
+  sumpSetup.samplesRequested = sumpSetup.samplesToRecord;
+
+  // prevent buffer overruns
+  if (sumpSetup.samplesToRecord > (unsigned int) LA_SAMPLE_SIZE * 8) {
+    sumpSetup.samplesToRecord = (unsigned int) LA_SAMPLE_SIZE * 8;
+    sumpSetup.numberOfChannels = 1;
+  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 4) {
+    sumpSetup.numberOfChannels = 1;
+  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 2) {
+    sumpSetup.numberOfChannels = 2;
+  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE) {
+    sumpSetup.numberOfChannels = 4;
+  } else {
+    sumpSetup.numberOfChannels = 8;
+  }
+  if (sumpSetup.delaySamples > sumpSetup.samplesToRecord) {
+    sumpSetup.delaySamples = sumpSetup.samplesToRecord;
+  }
+
 #if HARDWARE_CONFIGURATION
 
   // only 2 SPI channels
-  if (sumpNumChannels > 2)
+  if (sumpSetup.numberOfChannels > 2)
   {
-    sumpNumChannels = 2;
+    sumpSetup.numberOfChannels = 2;
   }
 
   #if Teensy_LC
-    if (sumpClockTicks <= 2)
+    if (sumpSetup.cpuClockTicks <= 2)
     {
       // only SPI1 can go up to 24 MHz
-      sumpNumChannels = 1;
+      sumpSetup.numberOfChannels = 1;
     }
   #endif
 
 #else
 
   // if assembly language
-  if (sumpClockTicks <= 8)
+  if (sumpSetup.cpuClockTicks <= 8)
   {
     // assembly only does 1 sample per byte
-    sumpNumChannels = 8;
+    sumpSetup.numberOfChannels = 8;
 
-    if (sumpSamples > LA_SAMPLE_SIZE)
+    if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE)
     {
       // set delay to 0 if no trigger, else 50%
-      if (sumpSamples == sumpDelaySamples)
+      if (sumpSetup.samplesToRecord == sumpSetup.delaySamples)
       {
-        sumpDelaySamples = LA_SAMPLE_SIZE;
+        sumpSetup.delaySamples = LA_SAMPLE_SIZE;
       }
       else
       {
-        sumpDelaySamples = LA_SAMPLE_SIZE / 2;
+        sumpSetup.delaySamples = LA_SAMPLE_SIZE / 2;
       }
 
-      sumpSamples = LA_SAMPLE_SIZE;
+      sumpSetup.samplesToRecord = LA_SAMPLE_SIZE;
     }
   }
 
@@ -690,7 +735,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   }
 
   // setup
-  switch (sumpNumChannels) {
+  switch (sumpSetup.numberOfChannels) {
     case 1:
       sumpSetup.samplesPerElement = 8 * 4;
       sumpSetup.sampleMask = 0x01;
@@ -713,16 +758,9 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
       break;
   }
 
-  sumpSetup.busClockDivisor = sumpDivisor;
-  sumpSetup.cpuClockTicks = sumpClockTicks;
-  sumpSetup.clockFrequency = sumpFrequency;
-  sumpSetup.numberOfChannels = sumpNumChannels;
-
   // record 4 extra elements, for trigger adjustment later
-  sumpSetup.samplesToRecord = sumpSamples + 4 * sumpSetup.samplesPerElement;
-  sumpSetup.samplesRequested = sumpRequestedSamples;
-  sumpSetup.samplesToSend = sumpSamples;
-
+  sumpSetup.samplesToSend = sumpSetup.samplesToRecord;
+  sumpSetup.samplesToRecord = sumpSetup.samplesToRecord + 4 * sumpSetup.samplesPerElement;
   
   sumpSetup.startOfBuffer = (uint32_t *)logicData;
   sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
@@ -731,7 +769,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   {
     // number of samples to delay before arming the trigger
     // (if not trigger, then this is 0)
-    sumpSetup.delaySamples = sumpSamples - sumpDelaySamples;
+    sumpSetup.delaySamples = sumpSetup.samplesToRecord - sumpSetup.delaySamples;
   }
   else
   {
@@ -752,7 +790,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   dynamic.triggerSampleIndex = 0;
 
   // setup timer
-  startTimer (sumpDivisor);
+  startTimer (sumpSetup.busClockDivisor);
 
 #if HARDWARE_CONFIGURATION
 
@@ -761,19 +799,19 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 #else
 
 #if Teensy_LC
-  if (sumpClockTicks <= 6)
+  if (sumpSetup.cpuClockTicks <= 6)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsm6Clocks(sumpSetup, dynamic);
   }
 #else
-  if (sumpClockTicks <= 5)
+  if (sumpSetup.cpuClockTicks <= 5)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsm5Clocks(sumpSetup, dynamic);
   }
 #endif
-  else if (sumpClockTicks <= 8)
+  else if (sumpSetup.cpuClockTicks <= 8)
   {
     sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsmWithTrigger(sumpSetup, dynamic);
@@ -836,6 +874,35 @@ void blinkledFast() {
   delay(10);
   digitalWriteFast(LED_PIN, LOW);
   delay(15);
+}
+
+void checkBlinkLED() {
+  if (blinkEndTime != 0) {
+    if (millis() > blinkEndTime) {
+      set_led_off ();
+      blinkEndTime = 0;
+      blinkStartTime = millis() + 15;
+    }
+  }
+  if (blinkStartTime != 0) {
+    if (millis() > blinkStartTime) {
+      blinkStartTime = 0;
+    }
+  }
+}
+
+void startBlinkLED() {
+  if (blinkStartTime == 0) {
+    blinkEndTime = millis() + 150;
+    set_led_on ();
+  }
+}
+
+void startBlinkLEDFast() {
+  if (blinkStartTime == 0) {
+    blinkEndTime = millis() + 10;
+    set_led_on ();
+  }
 }
 
 inline void set_led_on () {

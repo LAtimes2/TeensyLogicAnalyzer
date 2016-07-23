@@ -223,6 +223,10 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
   // cleanup
   unmaskInterrupts ();
 
+  #ifdef TIMING_DISCRETES
+    digitalWriteFast (TIMING_PIN_0, LOW);
+  #endif
+
   // adjust trigger count
   dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 

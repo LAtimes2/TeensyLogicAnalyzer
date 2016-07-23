@@ -30,7 +30,7 @@ If you don't have any signals to connect, you can change the $define CREATE_TEST
 7. If a trigger is desired, select Triggers tab, set Enabled, set Before/After ratio, and select Mask and Value.
 8. Select Capture. Data should show up in window.
 
-Basic/Advanced pinout:
+Basic pinout:
 
 Channel |  Pin
 :-------:|:---:
@@ -50,4 +50,4 @@ Channel |  Pin
    0    |  1
    1    |  8
 
-See Users_Guide.pdf for more details and how to build/use Advanced and Hardware configurations.
+See Users_Guide.pdf for more details and how to build/use Hardware configurations.
