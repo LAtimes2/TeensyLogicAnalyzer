@@ -69,7 +69,7 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "3.1"
+#define VERSION "3.2"
 
 //#define TIMING_DISCRETES  // if uncommented, set pins for timing
 
@@ -85,12 +85,18 @@
 // Teensy 3.0
 #if defined(__MK20DX128__)
   #define Teensy_3_0 1
-// Teensy 3.1
+// Teensy 3.2
 #elif defined(__MK20DX256__)
-  #define Teensy_3_1 1
+  #define Teensy_3_2 1
 // Teensy LC
 #elif defined(__MKL26Z64__)
   #define Teensy_LC 1
+// Teensy 3.5
+#elif defined(__MK64FX512__)
+  #define Teensy_3_5 1
+// Teensy 3.6
+#elif defined(__MK66FX1M0__)
+  #define Teensy_3_6 1
 #endif
 
 #if Teensy_3_0
@@ -98,7 +104,7 @@
    // 12k buffer size
    #define LA_SAMPLE_SIZE 12 * 1024
 
-#elif Teensy_3_1
+#elif Teensy_3_2
    // 58k buffer size
    #define LA_SAMPLE_SIZE 58 * 1024
 
@@ -106,6 +112,14 @@
 
    // 4k buffer size
    #define LA_SAMPLE_SIZE 4 * 1024
+
+#elif Teensy_3_5
+   // 186k buffer size
+   #define LA_SAMPLE_SIZE 186 * 1024
+
+#elif Teensy_3_6
+   // 250k buffer size
+   #define LA_SAMPLE_SIZE 250 * 1024
 
 #else
 
@@ -162,6 +176,7 @@ enum strategyType {
   STRATEGY_ASSEMBLY,
 } sumpStrategy = STRATEGY_NORMAL;
 
+int currentFBUS = F_BUS;
 uint32_t sumpRunning = 0;
 
 uint32_t blinkStartTime = 0;
@@ -238,6 +253,15 @@ void setup()
 
   blinkled();
 
+  setupTestFrequencies (F_BUS);
+
+  SUMPreset();
+}
+
+void setupTestFrequencies (int newFBUS) {
+
+currentFBUS = newFBUS;
+
 #if CREATE_TEST_FREQUENCIES
 
   /* Use PWM to generate a test signal.
@@ -252,8 +276,18 @@ void setup()
   int multiplier = 1;
   int divider = 1;
 
-  if (F_CPU == 144000000) {
-    // F_BUS is increased by 50%
+  float FBUSRatio = (float)currentFBUS / (float)F_BUS;
+
+  if (FBUSRatio > 3.99) {
+    divider = 4;
+  }
+  else if (FBUSRatio > 2.99) {
+    divider = 3;
+  }
+  else if (FBUSRatio > 1.99) {
+    divider = 2;
+  }
+  else if (FBUSRatio > 1.49) {
     multiplier = 2;
     divider = 3;
   }
@@ -274,7 +308,10 @@ void setup()
   #endif
 #endif
 
-  SUMPreset();
+}
+
+int getCurrentFBUS () {
+  return currentFBUS;
 }
 
 // main loop
@@ -405,9 +442,15 @@ void processSingleByteCommand (byte inByte,
       if (F_CPU == 96000000) {
         Serial.write("Teensy96");
       } else if (F_CPU == 120000000) {
-        Serial.write("Teensy120");
+        #if defined(TEENSY_3_5)
+          Serial.write("Teensy35_120");
+        #else
+          Serial.write("Teensy120");
+        #endif
       } else if (F_CPU == 144000000) {
         Serial.write("Teensy144");
+      } else if (F_CPU == 240000000) {
+        Serial.write("Teensy36_240");
       } else if (F_CPU == 72000000) {
         Serial.write("Teensy72");
       } else if (F_CPU == 48000000) {
@@ -621,15 +664,25 @@ void processFiveByteCommand (byte command[],
 
       if (F_CPU == 144000000) {
         // increase Bus clock by 50% and Mem clock
+        int currentFBUS = 72000000;
 
         // set F_BUS equal to F_CPU / 2
         SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
         // set F_MEM to F_CPU / 4
         SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
 
-        sumpSetup.clockFrequency = 72000000 / (divisor + 1);
+        sumpSetup.clockFrequency = currentFBUS / (divisor + 1);
+
+        setupTestFrequencies (currentFBUS);
       }
-      
+
+      #if HARDWARE_CONFIGURATION
+      if (F_CPU > 150000000) {
+        // Config file has bus frequency set to twice F_BUS
+        sumpSetup.clockFrequency *= 2;
+      }
+      #endif
+
       sumpSetup.cpuClockTicks = F_CPU / sumpSetup.clockFrequency;
 
       break;

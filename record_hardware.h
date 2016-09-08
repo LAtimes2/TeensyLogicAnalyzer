@@ -157,8 +157,6 @@ void recordSPIData_SingleChannel (sumpSetupVariableStruct &sv,
   }
   #endif
 
-
-
   maskInterrupts ();
 
 #if USE_PRE_TRIGGER
@@ -247,6 +245,43 @@ void recordSPIData_SingleChannel (sumpSetupVariableStruct &sv,
         ++inputPtr;
 
         spi0StartTransfer ();
+      }
+      #endif
+ 
+#elif Teensy_3_5 || Teensy_3_6
+
+    // if data is ready to read
+    if (SPI1_SR & SPI_SR_RXCTR_MASK)
+    {
+      sampleChan0 = SPI1_POPR;
+
+      // start next transfer
+      SPI1_PUSHR = SPI_PUSHR_CONT;
+
+      #if MULTIPLE_CHANNELS
+      {
+        sampleChan1 = SPI0_POPR;
+
+        SPI0_PUSHR = SPI_PUSHR_CONT;
+      }
+      #endif
+
+      // wait until data is ready to read
+      while (!(SPI1_SR & SPI_SR_RXCTR_MASK));
+
+      *(inputPtr) = sampleChan0 = (sampleChan0 << 16) + SPI1_POPR;
+      ++inputPtr;
+
+      // start next transfer
+      SPI1_PUSHR = SPI_PUSHR_CONT;
+
+      #if MULTIPLE_CHANNELS
+      {
+        *(inputPtr) = sampleChan1 = (sampleChan1 << 16) + SPI0_POPR;
+        ++inputPtr;
+
+        // start next transfer
+        SPI0_PUSHR = SPI_PUSHR_CONT;
       }
       #endif
  

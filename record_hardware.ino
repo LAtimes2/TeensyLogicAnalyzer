@@ -487,9 +487,10 @@ inline void startSPIClock (bool multipleChannels,
 }
 
 
-#else // 3.1
+#else // 3.x
 
 uint32_t prev_SIM_CLKDIV1;
+int prevFBUS;
 
 void spi0Initialize()
 {
@@ -550,29 +551,64 @@ void spi0Setup(uint32_t clock)
 
 void spi1Setup(uint32_t clock)
 {
+  // if F_BUS is adjusted, need to adjust this also to compensate
+  uint32_t adjustedClock = clock;
+  int newFBUS = getCurrentFBUS ();
+
   // save original value
   prev_SIM_CLKDIV1 = SIM_CLKDIV1;
+  prevFBUS = getCurrentFBUS ();
 
   // check for need for F_BUS speed increase
-  if (clock >= F_BUS)
+  if (F_CPU < 150000000)
+  {
+    if (clock >= F_BUS)
+    {
+      // set F_BUS equal to F_CPU
+      SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(0);
+
+      newFBUS = F_CPU;
+
+      // set F_MEM to F_CPU / 4 (only affects 120 and 144 MHz F_CPU)
+      SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
+    } else {
+      // set F_BUS equal to F_CPU / 2 (only affects 144 MHz F_CPU)
+      SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
+
+      newFBUS = F_CPU / 2;
+
+      if (F_CPU == 144000000) {
+        adjustedClock = adjustedClock * 2 / 3;
+      }
+    }
+  }
+  // F_CPU > 150 MHz
+  else if (clock >= F_BUS * 2)
   {
     // set F_BUS equal to F_CPU
     SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(0);
 
-    // set F_MEM to F_CPU / 4 (only affects 120 and 144 MHz F_CPU)
-    SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
-  } else {
-    // set F_BUS equal to F_CPU / 2 (only affects 144 MHz F_CPU)
+    newFBUS = F_CPU;
+  }
+  // F_CPU > 150 MHz
+  else
+  {
+    // set F_BUS equal to F_CPU / 2
     SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
+
+    newFBUS = F_CPU / 2;
+    adjustedClock = adjustedClock / 2;
   }
 
   SPI1_MCR = SPI_MCR_MDIS | SPI_MCR_HALT | SPI_MCR_PCSIS(0x1F) | SPI_MCR_CLR_TXF | SPI_MCR_CLR_RXF;
 
   // set control register for correct clock setting and 16 bit transfers
-  SPI1_CTAR0 = spiGetClockSetting (clock) | SPI_CTAR_FMSZ(15); //// | SPI_CTAR_LSBFE;
+  SPI1_CTAR0 = spiGetClockSetting (adjustedClock) | SPI_CTAR_FMSZ(15); //// | SPI_CTAR_LSBFE;
 
   // clear Rx FIFO not empty flag, Tx FIFO Underflow, RxFIFO Overflow
   SPI1_SR = SPI_SR_RFDF | SPI_SR_TFUF | SPI_SR_RFOF;
+
+  setupTestFrequencies (newFBUS);
 }
 
 static uint32_t spiGetClockSetting (uint32_t clock) {
@@ -631,6 +667,8 @@ void spiDisable (bool multipleChannels)
 
   // restore original value
   SIM_CLKDIV1 = prev_SIM_CLKDIV1;
+
+  setupTestFrequencies (prevFBUS);
 }
 
 inline void startSPIClock (bool multipleChannels,
