@@ -127,7 +127,7 @@ void sendData (
   sumpDynamicVariableStruct dynamic)
 {
   int firstSampleIndex;
-  int lastSampleIndex;
+  uint32_t lastSampleIndex;
   uint32_t triggerSampleIndex;
   byte sample;
   bool wrappedBuffer = false;
@@ -166,7 +166,7 @@ void sendData (
 
   // if samples were limited, send bogus data to indicate it is done.
   // Send these first since sent backwards in time
-  for (int index = sumpSetup.samplesToSend; index < sumpSetup.samplesRequested; index = index + 2)
+  for (uint32_t index = sumpSetup.samplesToSend; index < sumpSetup.samplesRequested; index = index + 2)
   {
     // send alternating 1's and 0's
     Serial.write(0x55);

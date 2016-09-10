@@ -55,7 +55,7 @@ struct sumpSetupVariableStruct {
   uint32_t samplesPerElement = 4;
   uint32_t samplesRequested = 0;
   uint32_t samplesToRecord = 0;
-  int samplesToSend;
+  uint32_t samplesToSend;
   int lastTriggerLevel;
   byte triggerMask[4];
   byte triggerValue[4];
