@@ -277,7 +277,9 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   uint32_t bufferSizeBytes = (uint32_t)(endOfBuffer - startOfBuffer) * 4;
 
   // to preserve registers, pack delaySize and bufferSize into 1 int
-  uint32_t data1 = (delaySizeBytes << 16) + bufferSizeBytes;
+  // (21 bits for delay size, 11 bits for buffer size (assume 1k increments)
+  // This allows up to 2 Mb buffer sizes in 1k increments
+  uint32_t data1 = (delaySizeBytes << 11) + (bufferSizeBytes >> 10);
 
   if (sv.triggerMask[0])
   {
@@ -299,8 +301,8 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
 
   // read enough samples prior to arming to meet the pre-trigger request
   // while (1) {
-                "pre_trigger_loop:\n\t"
                 ".align 2\n\t"
+                "pre_trigger_loop:\n\t"
     // workingValue = PORT_DATA_INPUT_REGISTER;
                 "ldrb %[workingValue], [%[portDataInputRegister]]\n\t"
                 "nop\n\t"
@@ -335,7 +337,6 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
     // if (inputPtr >= startPtr) {
                 "cmp %[inputPtr],%[startPtr]\n\t"
                 "blt pre_trigger_loop\n\t"
-////                "nop\n\t"
       // move to armed state
       // break;
     // }
@@ -348,30 +349,21 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
 //"orr %[workingValue],%[workingValue],#64\n\t"
                 "nop\n\t"
                 "nop\n\t"
-                "nop\n\t"
                 "looking_for_trigger_loop:\n\t"
-////                "nop\n\t"
     // workingValue = (workingValue << 8) + PORT_DATA_INPUT_REGISTER;
                 "ldrb %[tempValue], [%[portDataInputRegister]]\n\t"
                 "add %[workingValue],%[tempValue],%[workingValue],lsl #8\n\t"
 
     // if (usbInterruptPending) [part1]
-"ldrb %[tempValue],[%[USB0_ISTAT_register]]\n\t"
-"tst %[tempValue], #251\n\t"
-//                "nop\n\t"
-//                "nop\n\t"
-//                "nop\n\t"
-//                "nop\n\t"
+               "ldrb %[tempValue],[%[USB0_ISTAT_register]]\n\t"
+               "tst %[tempValue], #251\n\t"
     // workingValue = (workingValue << 8) + PORT_DATA_INPUT_REGISTER;
                 "ldrb %[tempValue], [%[portDataInputRegister]]\n\t"
                 "add %[workingValue],%[tempValue],%[workingValue],lsl #8\n\t"
 
     // if (usbInterruptPending) [part2]
                 "bne usb_exit\n\t"
-//                "nop\n\t"
-//                "nop\n\t"
 //"orr %[workingValue],%[workingValue],#68\n\t"
-                "nop\n\t"
                 "nop\n\t"
     // workingValue = (workingValue << 8) + PORT_DATA_INPUT_REGISTER;
                 "ldrb %[tempValue], [%[portDataInputRegister]]\n\t"
@@ -406,8 +398,7 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
 
       // last location to save
       // startPtr = inputPtr - sv.delaySize;
-//                "sub %[startPtr],%[inputPtr],%[delaySize],lsl #2\n\t"
-  "sub %[startPtr],%[inputPtr],%[data1],lsr #16\n\t"
+               "sub %[startPtr],%[inputPtr],%[data1],lsr #11\n\t"
 
       // adjust for circular buffer wraparound at the end.
       // if (startPtr < startOfBuffer) {
@@ -418,15 +409,13 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                 "ldrb %[tempValue], [%[portDataInputRegister]]\n\t"
                 "add %[workingValue],%[tempValue],%[workingValue],lsl #8\n\t"
 
-// get just lower 16 bits
-"lsl %[data1],#16\n\t"
+                // get just lower 11 bits (plus 10 lower 0's)
+                "lsl %[data1],#21\n\t"
                 "it lo\n\t"
         // startPtr = startPtr + bufferSize;
-//                "addls %[startPtr],%[startPtr],%[bufferSize],lsl #2\n\t"
-  "addlo %[startPtr],%[startPtr],%[data1],lsr #16\n\t"
+               "addlo %[startPtr],%[startPtr],%[data1],lsr #11\n\t"
       // }
 
-//                "nop\n\t"
     // workingValue = (workingValue << 8) + PORT_DATA_INPUT_REGISTER;
                 "ldrb %[tempValue], [%[portDataInputRegister]]\n\t"
                 "add %[workingValue],%[tempValue],%[workingValue],lsl #8\n\t"
