@@ -3,24 +3,31 @@ Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
 Two modes:
 
-* Basic (default) - I just want to record up to 8 signals at up to about 1 MHz. Higher speeds are available with some restrictions.
-* Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 1 channel or 12 MHz, 2 channels. 3.x is 72 MHz, 2 channels. Most have full triggering capability.
+* Basic (default) - I just want to record up to 8 signals at up to about 1 MHz. Higher speeds (6 to 48 MHz) are available with some restrictions.
+* Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 3.2 is 72 MHz, 3.5 is 60 MHz, 3.6 is 120 MHz. Most have full triggering capability.
 
 See installation.md for setup.
 
 See users guide for capabilities and how to use.
 
-# New updated OLS GUI is available for Windows
+If you are using the Logic Analyzer and have a github account, please leave a comment at https://github.com/LAtimes2/TeensyLogicAnalyzer/issues/1 with your Teensy and OLS versions that you use.
 
-Now you can get started on Windows in 3 easy steps:
+# New updated OLS GUI is available for Windows and Linux
 
-1. Download OLS (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
+Now you can get started on Windows or Linux in 3 easy steps:
 
-2. Select Capture -> Begin Capture, and set Analyzer port to COM port for the Teensy
+1a. Windows - Download OLS .zip (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
+1b. Linux - Download OLS .tar.gz (https://github.com/LAtimes2/ols/releases/latest), extract, and run run.sh
 
-3. Select Device type for your Teensy type and desired speed and hardware, then select Load Firmware
+2. Select Capture -> Begin Capture, and set Analyzer port to COM port or /dev/tty for the Teensy
 
-When done, select Capture and you can start looking at data. For a demo on Teensy 3.1/3.2, select Teensy 96 MHz OLS Demo and channels 4-8 will have PWM data on them (be sure not to connect anything to the Teensy since these channels are outputs in Demo mode).
+3. Select Device type for your Teensy type, then select Load Firmware
+
+When done, select Capture and you can start looking at data. For a demo on Teensy without external signals, select Teensy Demo when loading firmware and channels 4-8 will have PWM data on them (be sure not to connect anything to the Teensy since these channels are outputs in Demo mode).
+
+#### Version 3.2
+
+Add support for Teensy 3.5, 3.6. Add new commands for sample sizes >256k.
 
 #### Version 3.1
 
