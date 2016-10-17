@@ -442,7 +442,7 @@ void processSingleByteCommand (byte inByte,
       if (F_CPU == 96000000) {
         Serial.write("Teensy96");
       } else if (F_CPU == 120000000) {
-        #if defined(TEENSY_3_5)
+        #if Teensy_3_5
           Serial.write("Teensy35_120");
         #else
           Serial.write("Teensy120");
