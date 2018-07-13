@@ -16,9 +16,8 @@ If you are using the Logic Analyzer and have a github account, please leave a co
 
 Now you can get started on Windows or Linux in 3 easy steps:
 
-1. Download and run
-  1. Windows - OLS .zip (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
-  2. Linux - OLS .tar.gz (https://github.com/LAtimes2/ols/releases/latest), extract, and run run.sh
+1a. Windows - Download OLS .zip (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
+1b. Linux - Download OLS .tar.gz (https://github.com/LAtimes2/ols/releases/latest), extract, and run run.sh
 
 2. Select Capture -> Begin Capture, and set Analyzer port to COM port or /dev/tty for the Teensy
 
