@@ -22,10 +22,9 @@
  * SOFTWARE.
  */
 
-void recordLowSpeedData (sumpSetupVariableStruct &sv,
-                         sumpDynamicVariableStruct &dynamic)
+void recordRLEData (sumpSetupVariableStruct &sv,
+                    sumpDynamicVariableStruct &dynamic)
 {
-  bool bufferHasWrapped = false;
   int elementsToRecord = sv.samplesToRecord / sv.samplesPerElement;
   register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
@@ -33,8 +32,12 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
   uint32_t *startPtr = (uint32_t *)sv.startOfBuffer;
   byte samplesPerElement = sv.samplesPerElement;
   byte samplesPerElementMinusOne = samplesPerElement - 1;
-  register uint32_t sampleMask = sv.sampleMask;
+  // shift right 1 to mask off upper channel, which is used for RLE
+  register uint32_t sampleMask = sv.sampleMask >> 1;
   register uint32_t sampleShift = sv.sampleShift;
+  int sampleValue;
+  int previousSampleValue = -1;
+  byte rleCount = 0;
   int triggerCount = samplesPerElementMinusOne;
   register int workingCount = samplesPerElementMinusOne + 1;
   register uint32_t workingValue = 0;
@@ -75,25 +78,70 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
     waitForTimeout ();
 
     // read a sample
-    workingValue = (workingValue << sampleShift) + (PORT_DATA_INPUT_REGISTER & sampleMask);
-    --workingCount;
+    sampleValue = PORT_DATA_INPUT_REGISTER & sampleMask;
 
-    if (workingCount == 0)
+    if (sampleValue != previousSampleValue)
     {
+      // if previous rle count has not been written
+      if (workingCount == 0)
+      {
+//digitalWriteFast (TIMING_PIN_3, HIGH);
+        *(inputPtr) = workingValue;
+        ++inputPtr;
+
+        // adjust for circular buffer wraparound at the end
+        if (inputPtr >= endOfBuffer)
+        {
+          inputPtr = startOfBuffer;
+        }
+
+workingCount = samplesPerElement;
+workingValue = 0;
+//digitalWriteFast (TIMING_PIN_3, LOW);
+      }
+
+      // save new value
+      workingValue = (workingValue << sampleShift) + sampleValue;
+      --workingCount;
+
+      previousSampleValue = sampleValue;
+rleCount = 0;
+    }
+    else  // same
+    {
+//digitalWriteFast (TIMING_PIN_2, HIGH);
+      if (rleCount == 0)
+      {
+//digitalWriteFast (TIMING_PIN_3, HIGH);
+        // save count for previous value
+        workingValue = (workingValue << sampleShift) + 0x80;
+        --workingCount;
+        rleCount = 1;
+//digitalWriteFast (TIMING_PIN_3, LOW);
+      }
+
+      workingValue++;
+
+      if ((workingValue & sampleMask) == 127)
+      {
+//digitalWriteFast (TIMING_PIN_3, HIGH);
+// force current count to be written and new count started
+rleCount = 0;
+//digitalWriteFast (TIMING_PIN_3, LOW);
+      }
+//digitalWriteFast (TIMING_PIN_2, LOW);
+    }
+
+    if (workingCount == 0 && rleCount == 0)
+    {
+//digitalWriteFast (TIMING_PIN_3, HIGH);
       *(inputPtr) = workingValue;
       ++inputPtr;
-
 
       // adjust for circular buffer wraparound at the end
       if (inputPtr >= endOfBuffer)
       {
-        #ifdef TIMING_DISCRETES
-          digitalWriteFast (TIMING_PIN_5, HIGH);
-        #endif
-
         inputPtr = startOfBuffer;
-
-        bufferHasWrapped = true;
 
         // if any data is received from PC, then stop (assume it is a reset)
         if (usbInterruptPending ())
@@ -103,12 +151,12 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
           SUMPreset();
           break;
         }
-
-        #ifdef TIMING_DISCRETES
-          digitalWriteFast (TIMING_PIN_5, HIGH);
-        #endif
       }
-      
+
+workingCount = samplesPerElement;
+workingValue = 0;
+//digitalWriteFast (TIMING_PIN_3, LOW);
+/***      
       workingCount = samplesPerElementMinusOne;
 
       waitForTimeout ();
@@ -117,7 +165,7 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
       // shift previous value nor mask off extra bits. This saves
       // time that was used saving workingValue above.
       workingValue = PORT_DATA_INPUT_REGISTER;
-
+***/
     }  // if workingCount == 0
 
     // this state cannot afford enough time for the switch statement
@@ -146,18 +194,10 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
 
           } else {
 
-            #ifdef TIMING_DISCRETES
-              digitalWriteFast (TIMING_PIN_1, LOW);
-            #endif
-
             // advance to next trigger level
             ++currentTriggerLevel;
             triggerMask = sv.triggerMask[currentTriggerLevel];
             triggerValue = sv.triggerValue[currentTriggerLevel];
-
-            #ifdef TIMING_DISCRETES
-              digitalWriteFast (TIMING_PIN_1, HIGH);
-            #endif
           }
         }
       }
@@ -248,8 +288,6 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
 
   // adjust trigger count
   dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
-
-  dynamic.bufferHasWrapped = bufferHasWrapped;
 
   // adjust for circular buffer wraparound at the end.
   if (dynamic.triggerSampleIndex >= (uint32_t)sv.samplesToRecord)

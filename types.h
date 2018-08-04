@@ -44,11 +44,14 @@ enum TriggerType {
   
 // data to set up recording
 struct sumpSetupVariableStruct {
+  uint32_t anyDataMask;
   uint32_t busClockDivisor;
   uint32_t cpuClockTicks;
   uint32_t clockFrequency;
   uint32_t delaySamples = 0;
+  uint32_t delaySamplesRequested = 0;
   uint32_t delaySizeInElements = 0;
+  uint32_t firstRLEValue = 0;
   uint32_t numberOfChannels = 8;
   uint32_t sampleMask = 0xFF;
   uint32_t sampleShift = 8;
@@ -57,15 +60,20 @@ struct sumpSetupVariableStruct {
   uint32_t samplesToRecord = 0;
   uint32_t samplesToSend;
   int lastTriggerLevel;
+  byte rleCountIndicator = 0;
   byte triggerMask[4];
   byte triggerValue[4];
   uint16_t triggerDelay[4];
   uint32_t *startOfBuffer;
   uint32_t *endOfBuffer;
+  bool rleSelected = false;
+  bool rleUsed = false;
 };
 
 // data that changes while recording
 struct sumpDynamicVariableStruct {
+  bool bufferHasWrapped;
+  int interruptedIndex;   // location where recording was halted early, or -1 if not halted
   uint32_t triggerSampleIndex;
 };
 

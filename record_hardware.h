@@ -74,6 +74,7 @@ void recordSPIData_SingleChannel (sumpSetupVariableStruct &sv,
 
   register uint32_t sampleChan0;
 
+  bool bufferHasWrapped = false;
   byte triggerMask = sv.triggerMask[0];
   byte triggerValue = sv.triggerValue[0];
 
@@ -321,6 +322,8 @@ void recordSPIData_SingleChannel (sumpSetupVariableStruct &sv,
       {
         inputPtr = sv.startOfBuffer;
 
+        bufferHasWrapped = true;
+
         // if any data is received from PC, then stop (assume it is a reset)
         if (usbInterruptPending ())
         {
@@ -448,7 +451,9 @@ DoneRecording:
   dynamic.triggerSampleIndex = sv.samplesPerElement;
 #endif
 
-   // turn off SPI module
+  dynamic.bufferHasWrapped = bufferHasWrapped;
+
+  // turn off SPI module
   #if MULTIPLE_CHANNELS
     spiDisable (true);
   #else
