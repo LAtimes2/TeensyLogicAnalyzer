@@ -33,7 +33,7 @@
 //
 
 #define HARDWARE_CONFIGURATION 0   // if 1, it will use the SPI input(s) instead of Port D
-#define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
+#define CREATE_TEST_FREQUENCIES 1  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
 
 //
 // Pin definitions (info only - do not change)
@@ -61,6 +61,10 @@
 
 #define TIMING_PIN_0 15
 #define TIMING_PIN_1 16
+#define TIMING_PIN_2 17
+#define TIMING_PIN_3 18
+#define TIMING_PIN_4 19
+#define TIMING_PIN_5 22
 
 //////////////////////////////////////
 // End of settings
@@ -69,9 +73,10 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "3.2"
+#define VERSION "4.0"
 
-//#define TIMING_DISCRETES  // if uncommented, set pins for timing
+//#define TIMING_DISCRETES   // if uncommented, set pins 0 and 1 for timing
+//#define TIMING_DISCRETES_2 // if uncommented, more timing detail
 
 // Debug serial port. Uncomment one of these lines
 #define DEBUG_SERIAL(x) 0   // no debug output
@@ -101,8 +106,8 @@
 
 #if Teensy_3_0
 
-   // 12k buffer size
-   #define LA_SAMPLE_SIZE 12 * 1024
+   // 10k buffer size
+   #define LA_SAMPLE_SIZE 10 * 1024
 
 #elif Teensy_3_2
    // 58k buffer size
@@ -205,6 +210,8 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
                                sumpDynamicVariableStruct &dynamic);
 void recordLowSpeedData (sumpSetupVariableStruct &sv,
                          sumpDynamicVariableStruct &dynamic);
+void recordRLEData (sumpSetupVariableStruct &sv,
+                    sumpDynamicVariableStruct &dynamic);
 void recordSPIData (sumpSetupVariableStruct &sv,
                     sumpDynamicVariableStruct &dynamic);
 void sendData (sumpSetupVariableStruct sumpSetup,
@@ -246,8 +253,13 @@ void setup()
 
 #ifdef TIMING_DISCRETES
   // Pin 0 high = waiting to sample, Pin 1 high = looking for trigger
+  // Pin 5 high = buffer wrap-around
   pinMode (TIMING_PIN_0, OUTPUT);
   pinMode (TIMING_PIN_1, OUTPUT);
+  pinMode (TIMING_PIN_2, OUTPUT);
+  pinMode (TIMING_PIN_3, OUTPUT);
+  pinMode (TIMING_PIN_4, OUTPUT);
+  pinMode (TIMING_PIN_5, OUTPUT);
 
 #endif
 
@@ -291,15 +303,15 @@ currentFBUS = newFBUS;
     multiplier = 2;
     divider = 3;
   }
-  
+
   analogWriteFrequency (3, 62500 * multiplier / divider);
-  analogWrite (3, 128);
+  analogWrite (3, 12);
 
   #if not HARDWARE_CONFIGURATION
 
     analogWriteFrequency (CHAN4, 25000 * multiplier / divider);
     analogWrite (CHAN4, 64);
-    analogWrite (CHAN5, 124);
+    analogWrite (CHAN5, 127);
 
     #if defined(KINETISK)
       analogWrite (CHAN6, 128);
@@ -440,7 +452,11 @@ void processSingleByteCommand (byte inByte,
       Serial.write("HW_");
 #endif
       if (F_CPU == 96000000) {
-        Serial.write("Teensy96");
+        #if Teensy_3_0
+          Serial.write("Teensy30_96");
+        #else
+          Serial.write("Teensy96");
+        #endif
       } else if (F_CPU == 120000000) {
         #if Teensy_3_5
           Serial.write("Teensy35_120");
@@ -626,6 +642,10 @@ void processFiveByteCommand (byte command[],
       }
       break;
 
+    case SUMP_FLAGS:
+      sumpSetup.rleSelected = sumpRX.command[2] & 0x01;
+      break;
+
     case SUMP_CNT:
       sumpSetup.samplesToRecord = sumpRX.command[2];
       sumpSetup.samplesToRecord <<= 8;
@@ -637,8 +657,7 @@ void processFiveByteCommand (byte command[],
       sumpSetup.delaySamples |= sumpRX.command[3];
       sumpSetup.delaySamples = (sumpSetup.delaySamples + 1) * 4;
 
-      // need this to get OLS client to line up trigger to time 0
-      sumpSetup.delaySamples += 2;
+      sumpSetup.delaySamplesRequested = sumpSetup.delaySamples;
 
       // command only supports up to 256k, but using certain assumptions, can go higher
       // (for clients that don't support SUMP_CAPTURE_COUNT command)
@@ -708,8 +727,8 @@ void processFiveByteCommand (byte command[],
       sumpSetup.delaySamples |= sumpRX.command[1];
       sumpSetup.delaySamples = (sumpSetup.delaySamples + 1) * 4;
 
-      // need this to get OLS client to line up trigger to time 0
-      sumpSetup.delaySamples += 2;
+      sumpSetup.delaySamplesRequested = sumpSetup.delaySamples;
+
       break;
   }
 }
@@ -736,6 +755,13 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   } else {
     sumpSetup.numberOfChannels = 8;
   }
+
+  if (!sumpSetup.rleSelected)
+  {
+    // need this to get OLS client to line up trigger to time 0
+    sumpSetup.delaySamples = sumpSetup.delaySamplesRequested + 2;
+  }
+  
   if (sumpSetup.delaySamples > sumpSetup.samplesToRecord) {
     sumpSetup.delaySamples = sumpSetup.samplesToRecord;
   }
@@ -803,11 +829,15 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
       sumpSetup.samplesPerElement = 2 * 4;
       sumpSetup.sampleMask = 0x0F;
       sumpSetup.sampleShift = 4;
+      sumpSetup.rleCountIndicator = 0x08;
+      sumpSetup.anyDataMask = 0x88888888;  // MSB set in all samples in the element
       break;
     default:
       sumpSetup.samplesPerElement = 1 * 4;
       sumpSetup.sampleMask = 0x0FF;
       sumpSetup.sampleShift = 8;
+      sumpSetup.rleCountIndicator = 0x80;
+      sumpSetup.anyDataMask = 0x80808080;  // MSB set in all samples in the element
       break;
   }
 
@@ -822,7 +852,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   {
     // number of samples to delay before arming the trigger
     // (if not trigger, then this is 0)
-    sumpSetup.delaySamples = sumpSetup.samplesToRecord - sumpSetup.delaySamples;
+    sumpSetup.delaySamples = sumpSetup.samplesToSend - sumpSetup.delaySamples;
   }
   else
   {
@@ -841,6 +871,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 #endif
 
   dynamic.triggerSampleIndex = 0;
+  dynamic.interruptedIndex = -1;
+  dynamic.bufferHasWrapped = false;
+
+  // set to true later if used
+  sumpSetup.rleUsed = false;
 
   // setup timer
   startTimer (sumpSetup.busClockDivisor);
@@ -873,13 +908,26 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   {
     sumpStrategy = STRATEGY_NORMAL;
 
-    recordLowSpeedData (sumpSetup, dynamic);
+    // if RLE selected, 8 channels, and more than 48 clock ticks
+    if (sumpSetup.rleSelected &&
+        sumpSetup.numberOfChannels >= 8 &&
+        sumpSetup.cpuClockTicks > 48)
+    {
+      sumpSetup.rleUsed = true;
+      recordRLEData (sumpSetup, dynamic);
+    }
+    else
+    {
+      recordLowSpeedData (sumpSetup, dynamic);
+    }
   }
 
 #endif
 
-  if (sumpRunning)
+  // if not halted early (except RLE always sends data when halted)
+  if (sumpRunning || sumpSetup.rleSelected)
   {
+DEBUG_SERIAL(println("  calling sendData"));
      sendData (sumpSetup, dynamic);
   }
 
@@ -892,9 +940,6 @@ inline void waitForTimeout (void)
   #ifdef TIMING_DISCRETES     
     digitalWriteFast (TIMING_PIN_0, HIGH);
   #endif
-
-//  while (!timerExpired ());
-//  clearTimerFlag ();
 
    // for speed, to reduce jitter
    waitStart:

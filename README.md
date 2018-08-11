@@ -6,8 +6,6 @@ Two modes:
 * Basic (default) - I just want to record up to 8 signals at up to about 1 MHz. Higher speeds (6 to 48 MHz) are available with some restrictions.
 * Hardware - I only need 1 or 2 channels, but I have a need for speed - LC is 24 MHz, 3.2 is 72 MHz, 3.5 is 60 MHz, 3.6 is 120 MHz. Most have full triggering capability.
 
-See installation.md for setup.
-
 See users guide for capabilities and how to use.
 
 If you are using the Logic Analyzer and have a github account, please leave a comment at https://github.com/LAtimes2/TeensyLogicAnalyzer/issues/1 with your Teensy and OLS versions that you use.
@@ -16,15 +14,20 @@ If you are using the Logic Analyzer and have a github account, please leave a co
 
 Now you can get started on Windows or Linux in 3 easy steps:
 
-1. Download and run
-  1. Windows - OLS .zip (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
-  2. Linux - OLS .tar.gz (https://github.com/LAtimes2/ols/releases/latest), extract, and run run.sh
+1a. Windows - Download OLS .zip (https://github.com/LAtimes2/ols/releases/latest), unzip, and run run.bat
+
+1b. Linux - Download OLS .tar.gz (https://github.com/LAtimes2/ols/releases/latest), extract, and run run.sh
 
 2. Select Capture -> Begin Capture, and set Analyzer port to COM port or /dev/tty for the Teensy
 
 3. Select Device type for your Teensy type, then select Load Firmware
 
 When done, select Capture and you can start looking at data. For a demo on Teensy without external signals, select Teensy Demo when loading firmware and channels 4-8 will have PWM data on them (be sure not to connect anything to the Teensy since these channels are outputs in Demo mode).
+
+#### Version 4.0
+
+New Run-Length Encoding (RLE) support. This only records data when it changes, so can record up to 100 times longer, depending on how often the data changes. To select it, enable Run Length Encoding on Acquisition tab.
+Added pre-built hex files for Teensy 3.0.
 
 #### Version 3.2
 

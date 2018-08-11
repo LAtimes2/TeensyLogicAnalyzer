@@ -25,6 +25,7 @@
 void recordLowSpeedData (sumpSetupVariableStruct &sv,
                          sumpDynamicVariableStruct &dynamic)
 {
+  bool bufferHasWrapped = false;
   int elementsToRecord = sv.samplesToRecord / sv.samplesPerElement;
   register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
@@ -86,7 +87,13 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
       // adjust for circular buffer wraparound at the end
       if (inputPtr >= endOfBuffer)
       {
+        #ifdef TIMING_DISCRETES
+          digitalWriteFast (TIMING_PIN_5, HIGH);
+        #endif
+
         inputPtr = startOfBuffer;
+
+        bufferHasWrapped = true;
 
         // if any data is received from PC, then stop (assume it is a reset)
         if (usbInterruptPending ())
@@ -96,6 +103,10 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
           SUMPreset();
           break;
         }
+
+        #ifdef TIMING_DISCRETES
+          digitalWriteFast (TIMING_PIN_5, HIGH);
+        #endif
       }
       
       workingCount = samplesPerElementMinusOne;
@@ -135,10 +146,18 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
 
           } else {
 
+            #ifdef TIMING_DISCRETES
+              digitalWriteFast (TIMING_PIN_1, LOW);
+            #endif
+
             // advance to next trigger level
             ++currentTriggerLevel;
             triggerMask = sv.triggerMask[currentTriggerLevel];
             triggerValue = sv.triggerValue[currentTriggerLevel];
+
+            #ifdef TIMING_DISCRETES
+              digitalWriteFast (TIMING_PIN_1, HIGH);
+            #endif
           }
         }
       }
@@ -229,6 +248,8 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
 
   // adjust trigger count
   dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
+
+  dynamic.bufferHasWrapped = bufferHasWrapped;
 
   // adjust for circular buffer wraparound at the end.
   if (dynamic.triggerSampleIndex >= (uint32_t)sv.samplesToRecord)

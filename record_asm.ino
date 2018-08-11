@@ -543,6 +543,12 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   // adjust trigger count
   dynamic.triggerSampleIndex = (triggerPtr - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
 
+  // assume it wrapped if first sample was not the trigger
+  if (dynamic.triggerSampleIndex != sv.delaySizeInElements)
+  {
+    dynamic.bufferHasWrapped = true;
+  }
+
   set_led_off ();
 
 #endif

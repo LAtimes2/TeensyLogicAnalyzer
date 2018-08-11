@@ -47,9 +47,37 @@ byte getSample (sumpSetupVariableStruct setup, int sampleIndex)
 
   sample = (setup.startOfBuffer[arrayIndex] >> (setup.sampleShift * elementIndex)) & setup.sampleMask;
 
+  // if RLE is selected but it wasn't used, clear top channel
+  if (setup.rleSelected && !setup.rleUsed)
+  {
+    // clear rleCountIndicator for this number of channels
+    sample = sample & ~setup.rleCountIndicator;
+  }
+
   return sample;
 }
 
+bool sampleIsRleCount (sumpSetupVariableStruct setup, int sampleIndex)
+{
+  bool returnValue = false;
+  uint32_t sample;
+
+  sample = getSample (setup, sampleIndex);
+
+  if ((sample & setup.rleCountIndicator) == setup.rleCountIndicator)
+  {
+    returnValue = true;
+  }
+
+  return (returnValue);
+}
+
+//    adjustTrigger
+//
+// Certain of the fastest modes don't have time to set the trigger precisely. This function
+// goes back and looks at the data around the nominal trigger point to find the actual
+// trigger location and sets it accordingly.
+//
 void adjustTrigger (
   sumpSetupVariableStruct setup,
   sumpDynamicVariableStruct &dynamic)
@@ -68,6 +96,7 @@ void adjustTrigger (
 
   int currentStartIndex = startIndex;        // can get adjusted at each stage
   uint32_t triggerSampleIndex = 0xFFFFFFFF;  // set to large invalid value
+  bool continue_checks = true;
 
   // for each trigger level
   for (int level = 0; level <= setup.lastTriggerLevel; ++level) {
@@ -75,10 +104,19 @@ void adjustTrigger (
     for (int index = currentStartIndex; index <= endIndex; ++index) {
 
       // since unsigned, check for wraparound to a very large number (i.e. negative)
-      if (dynamic.triggerSampleIndex + index < 0xF0000000) {
-        // if this is the trigger
-        if ((getSample (setup, dynamic.triggerSampleIndex + index) & setup.triggerMask[level]) == setup.triggerValue[level]) {
+      if (dynamic.triggerSampleIndex + index > 0xF0000000) {
+        continue_checks = false;
+      }
 
+      // if an RLE count, don't use it
+      if (setup.rleSelected && (getSample (setup, dynamic.triggerSampleIndex + index) & setup.rleCountIndicator)) {
+        continue_checks = false;
+      }
+
+      if (continue_checks) {
+        // if it is the trigger
+        if ((getSample (setup, dynamic.triggerSampleIndex + index) & setup.triggerMask[level]) == setup.triggerValue[level])
+        {
           if (level == setup.lastTriggerLevel) {
             triggerSampleIndex = dynamic.triggerSampleIndex + index;
 
@@ -109,15 +147,17 @@ void adjustTrigger (
             }
           }
           break;
-        }
-      }
+        } // if trigger
+      } // if continue_checks
 
-    }
+    }  // for index ...
 
-  }
+  }  // for level ...
 
-  // do not go past end of search area
-  if (triggerSampleIndex <= dynamic.triggerSampleIndex + endIndex) {
+  // do not go outside of search area
+  if (triggerSampleIndex <= dynamic.triggerSampleIndex + endIndex &&
+      (dynamic.bufferHasWrapped || triggerSampleIndex >= setup.delaySamples))
+  {
     dynamic.triggerSampleIndex = triggerSampleIndex;
   }
 }
@@ -126,10 +166,16 @@ void sendData (
   sumpSetupVariableStruct sumpSetup,
   sumpDynamicVariableStruct dynamic)
 {
+  const byte RLE_MASK = 0x80;
+
   int firstSampleIndex;
   uint32_t lastSampleIndex;
   uint32_t triggerSampleIndex;
+  uint32_t firstRLEValue = 0;
+  int missingSampleCount = 0;
   byte sample;
+  int samplesSentCount = 0;
+  int samplesToSend = sumpSetup.samplesToSend;
   bool wrappedBuffer = false;
 
   // if using trigger
@@ -140,37 +186,76 @@ void sendData (
 
   triggerSampleIndex = dynamic.triggerSampleIndex;
 
-  // make sure it didn't adjust too far
-  if (triggerSampleIndex < sumpSetup.delaySamples ||
-      triggerSampleIndex > 0xFFFF0000)
-  {
-    triggerSampleIndex = sumpSetup.delaySamples;
-  }
-
   // set unused channels to alternating 1's and 0's
   byte unusedValue = 0x55;
 
   // get first sampleIndex to send
   firstSampleIndex = triggerSampleIndex - sumpSetup.delaySamples;
 
+  if (firstSampleIndex < 0)
+  {
+    firstSampleIndex += sumpSetup.samplesToSend;
+  }
+
+  // if using trigger with RLE
+  if (sumpSetup.triggerMask[0] && sumpSetup.rleSelected)
+  {
+    // compute the first sample value in case first sample was an RLE count
+    for (int32_t elementIndex = sumpSetup.samplesPerElement - 1; elementIndex >= 0; --elementIndex)
+    {
+      sample = (sumpSetup.firstRLEValue >> (sumpSetup.sampleShift * elementIndex)) & sumpSetup.sampleMask;
+
+      // if it is not an RLE count
+      if ((sample & sumpSetup.rleCountIndicator) == 0)
+      {
+        // save it as the first value to insert in the data stream
+        firstRLEValue = sample;
+      }
+    }
+  }
+
+  // if halted before recording all the data
+  if (dynamic.interruptedIndex >= 0)
+  {
+    // get last sample index to send if it hadn't been interrupted
+    lastSampleIndex = firstSampleIndex + samplesToSend - 1;
+
+    missingSampleCount = lastSampleIndex - dynamic.interruptedIndex;
+
+    // if buffer wrapped around
+    if (missingSampleCount < 0)
+    {
+      missingSampleCount += sumpSetup.samplesToRecord;
+    }
+    if ((uint32_t)missingSampleCount >= sumpSetup.samplesToRecord)
+    {
+      missingSampleCount -= sumpSetup.samplesToRecord;
+    }
+
+    // adjust samples available to be sent
+    samplesToSend -= missingSampleCount;
+  }
+
   // get last sampleIndex to send
-  lastSampleIndex = firstSampleIndex + sumpSetup.samplesToSend - 1;
+  lastSampleIndex = firstSampleIndex + samplesToSend - 1;
 
   // if buffer wrapped around
   if (lastSampleIndex >= sumpSetup.samplesToRecord)
   {
-    lastSampleIndex = lastSampleIndex - sumpSetup.samplesToRecord;
     wrappedBuffer = true;
+    lastSampleIndex = lastSampleIndex - sumpSetup.samplesToRecord;
   }
 
 
   // if samples were limited, send bogus data to indicate it is done.
   // Send these first since sent backwards in time
-  for (uint32_t index = sumpSetup.samplesToSend; index < sumpSetup.samplesRequested; index = index + 2)
+  for (uint32_t index = samplesToSend; index < sumpSetup.samplesRequested; index = index + 2)
   {
     // send alternating 1's and 0's
     Serial.write(0x55);
-    Serial.write(0xAA);
+    Serial.write(0x2A); // keep MSB off for RLE
+
+    samplesSentCount = samplesSentCount + 2;
   }
 
   // send the data up to end of buffer
@@ -185,7 +270,7 @@ void sendData (
     finalIndex = lastSampleIndex;
   }
 
-  // data is send from last to first
+  // data is sent from last to first
 
   // if buffer wrapped, send the last part of the data
   if (wrappedBuffer)
@@ -193,22 +278,75 @@ void sendData (
     for (int index = lastSampleIndex; index >= 0; --index)
     {
       sample = getSample (sumpSetup, index);
-      sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);
+
+      // if it is an RLE count, move count indicator to correct bit
+      if (sumpSetup.rleUsed && (sample & sumpSetup.rleCountIndicator))
+      {
+        // clear rleCountIndicator for this number of channels
+        sample = sample & ~sumpSetup.rleCountIndicator;
+
+        // set RLE count indicator to GUI
+        sample = sample | RLE_MASK;
+      }
+      else if (!sumpSetup.rleSelected)
+      {
+        sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);    
+      }
+      
       Serial.write(sample);
+      ++samplesSentCount;
 
       unusedValue = ~unusedValue;   // toggle 1's and 0's
+
+      if (sumpSetup.rleSelected)
+      {
+        // RLE must have MSB of unused samples set to 0
+        unusedValue = unusedValue & 0x7F;
+      }
     }  
   }
 
   for (int index = finalIndex; index >= firstSampleIndex; --index)
   {
     sample = getSample (sumpSetup, index);
-    sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);
+
+    // if first sample index is an RLE count, set it to a value
+    if (sumpSetup.rleSelected &&
+        (index == firstSampleIndex) &&
+        ((sample & RLE_MASK) == RLE_MASK))
+    {
+      sample = firstRLEValue;
+    }
+    else
+    {
+      sample = getSample (sumpSetup, index);
+    }
+
+    // if it is an RLE count
+    if (sumpSetup.rleUsed && (sample & sumpSetup.rleCountIndicator))
+    {
+      // clear rleCountIndicator for this number of channels
+      sample = sample & ~sumpSetup.rleCountIndicator;
+
+      // set RLE count indicator to GUI
+      sample = sample | RLE_MASK;
+    }
+    else if (!sumpSetup.rleSelected)
+    {
+      sample = (unusedValue & ~sumpSetup.sampleMask) + (sample & sumpSetup.sampleMask);    
+    }
+
     Serial.write(sample);
+    ++samplesSentCount;
 
     unusedValue = ~unusedValue;   // toggle 1's and 0's
-  }
 
+    if (sumpSetup.rleSelected)
+    {
+      // RLE must have MSB of unused samples set to 0
+      unusedValue = unusedValue & 0x7F;
+    }
+  }  // for index =
 }
 
 
