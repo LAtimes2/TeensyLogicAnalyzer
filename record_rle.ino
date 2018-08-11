@@ -339,7 +339,8 @@ void recordRLEData (sumpSetupVariableStruct &sv,
               triggerMask = sv.triggerMask[currentTriggerLevel];
               triggerValue = sv.triggerValue[currentTriggerLevel];
               triggerDelay = sv.triggerDelay[currentTriggerLevel];
-              state = LookingForTrigger;
+              //state = LookingForTrigger;
+              switch_ptr = &&LookingForTrigger_Label;
             }
           }
           break;
