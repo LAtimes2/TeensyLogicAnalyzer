@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2016 LAtimes2
+ * Copyright (c) 2018 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -97,11 +97,14 @@ void adjustTrigger (
   int currentStartIndex = startIndex;        // can get adjusted at each stage
   uint32_t triggerSampleIndex = 0xFFFFFFFF;  // set to large invalid value
   bool continue_checks = true;
+  bool skip_sample = false;
 
   // for each trigger level
   for (int level = 0; level <= setup.lastTriggerLevel; ++level) {
 
     for (int index = currentStartIndex; index <= endIndex; ++index) {
+
+      skip_sample = false;
 
       // since unsigned, check for wraparound to a very large number (i.e. negative)
       if (dynamic.triggerSampleIndex + index > 0xF0000000) {
@@ -109,11 +112,11 @@ void adjustTrigger (
       }
 
       // if an RLE count, don't use it
-      if (setup.rleSelected && (getSample (setup, dynamic.triggerSampleIndex + index) & setup.rleCountIndicator)) {
-        continue_checks = false;
+      if (setup.rleUsed && (sampleIsRleCount (setup, dynamic.triggerSampleIndex + index))) {
+        skip_sample = true;
       }
 
-      if (continue_checks) {
+      if (continue_checks && !skip_sample) {
         // if it is the trigger
         if ((getSample (setup, dynamic.triggerSampleIndex + index) & setup.triggerMask[level]) == setup.triggerValue[level])
         {
@@ -121,7 +124,7 @@ void adjustTrigger (
             triggerSampleIndex = dynamic.triggerSampleIndex + index;
 
             // add trigger delay if not at start of search area (may have been true earlier)
-            if (index != startIndex) {
+            if (index != startIndex && !setup.rleUsed) {
               // add any delay after the trigger
               triggerSampleIndex += setup.triggerDelay[level];
             }
@@ -135,7 +138,7 @@ void adjustTrigger (
             currentStartIndex = index;
 
             // add trigger delay if not at start of search area (may have been true earlier)
-            if (index != startIndex) {
+            if (index != startIndex && !setup.rleUsed) {
               currentStartIndex += setup.triggerDelay[level];
 
               // if delay goes past end of search area, start searching at beginning again
@@ -155,8 +158,8 @@ void adjustTrigger (
   }  // for level ...
 
   // do not go outside of search area
-  if (triggerSampleIndex <= dynamic.triggerSampleIndex + endIndex &&
-      (dynamic.bufferHasWrapped || triggerSampleIndex >= setup.delaySamples))
+  if (triggerSampleIndex <= (dynamic.triggerSampleIndex + endIndex) &&
+      (triggerSampleIndex >= 0))
   {
     dynamic.triggerSampleIndex = triggerSampleIndex;
   }
@@ -169,7 +172,7 @@ void sendData (
   const byte RLE_MASK = 0x80;
 
   int firstSampleIndex;
-  uint32_t lastSampleIndex;
+  uint32_t lastSampleIndex = 0;
   uint32_t triggerSampleIndex;
   uint32_t firstRLEValue = 0;
   int missingSampleCount = 0;
@@ -194,11 +197,11 @@ void sendData (
 
   if (firstSampleIndex < 0)
   {
-    firstSampleIndex += sumpSetup.samplesToSend;
+    firstSampleIndex += sumpSetup.samplesToRecord;
   }
 
   // if using trigger with RLE
-  if (sumpSetup.triggerMask[0] && sumpSetup.rleSelected)
+  if (sumpSetup.triggerMask[0] && sumpSetup.rleUsed)
   {
     // compute the first sample value in case first sample was an RLE count
     for (int32_t elementIndex = sumpSetup.samplesPerElement - 1; elementIndex >= 0; --elementIndex)
@@ -253,7 +256,15 @@ void sendData (
   {
     // send alternating 1's and 0's
     Serial.write(0x55);
-    Serial.write(0x2A); // keep MSB off for RLE
+
+    if (sumpSetup.rleSelected)
+    {
+       Serial.write(0x2A); // keep MSB off for RLE
+    }
+    else
+    {
+       Serial.write(0xAA);
+    }
 
     samplesSentCount = samplesSentCount + 2;
   }
@@ -306,12 +317,13 @@ void sendData (
     }  
   }
 
+  // send the data (or rest of data after wrapped)
   for (int index = finalIndex; index >= firstSampleIndex; --index)
   {
     sample = getSample (sumpSetup, index);
 
     // if first sample index is an RLE count, set it to a value
-    if (sumpSetup.rleSelected &&
+    if (sumpSetup.rleUsed &&
         (index == firstSampleIndex) &&
         ((sample & RLE_MASK) == RLE_MASK))
     {

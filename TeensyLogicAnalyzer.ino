@@ -1,5 +1,7 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2016 LAtimes2
+ * Copyright (c) 2018 LAtimes2
+ *
+ * The MIT License (MIT)
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -22,6 +24,14 @@
  * SOFTWARE.
  */
 
+#include "record_high_speed_data_8_channels.h"
+
+// LC doesn't have enough RAM for FASTRUN. Just runs slower on LC.
+#if not defined(__MKL26Z64__)
+FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
+                             sumpDynamicVariableStruct &dynamic);
+#endif
+
 // Resources used:
 //   PIT timer 0
 //   Port D pins or SPI MISO pins
@@ -33,7 +43,7 @@
 //
 
 #define HARDWARE_CONFIGURATION 0   // if 1, it will use the SPI input(s) instead of Port D
-#define CREATE_TEST_FREQUENCIES 1  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7)
+#define CREATE_TEST_FREQUENCIES 0  // if 1, it will output frequencies on pins 5/6/0/21 (channels 4-7) and pin 3
 
 //
 // Pin definitions (info only - do not change)
@@ -73,14 +83,15 @@
 #include <stdint.h>
 #include "types.h"
 
-#define VERSION "4.0"
+#define VERSION "4.1"
 
 //#define TIMING_DISCRETES   // if uncommented, set pins 0 and 1 for timing
 //#define TIMING_DISCRETES_2 // if uncommented, more timing detail
 
-// Debug serial port. Uncomment one of these lines
+// Debug serial port. To turn on, comment out next 2 lines and uncomment desired line
+#define NO_DEBUG
 #define DEBUG_SERIAL(x) 0   // no debug output
-//#define DEBUG_SERIAL(x) Serial.x  // debug output to USB Serial
+//#define DEBUG_SERIAL(x) Serial.x  // debug output to USB Serial (conflicts with GUI)
 //#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
 //#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
@@ -104,27 +115,54 @@
   #define Teensy_3_6 1
 #endif
 
+// Program requires about 1k bytes for local variables. The buffer sizes
+// below have been set to be as large as possible while leaving 1k.
+
 #if Teensy_3_0
 
-   // 10k buffer size
-   #define LA_SAMPLE_SIZE 10 * 1024
+  #if not defined(NO_DEBUG)
+    // if using serial port, maximum sample size is 1k less
+    #define LA_SAMPLE_SIZE (int)(8.5 * 1024)
+  #elif HARDWARE_CONFIGURATION
+    // 11.5k buffer size
+    #define LA_SAMPLE_SIZE (int)(11.5 * 1024)
+  #else
+    // 9.5k buffer size
+    #define LA_SAMPLE_SIZE (int)(9.5 * 1024)
+  #endif
 
 #elif Teensy_3_2
-   // 58k buffer size
-   #define LA_SAMPLE_SIZE 58 * 1024
+
+  #if defined(NO_DEBUG)
+    // 57k buffer size
+    #define LA_SAMPLE_SIZE 57 * 1024
+  #else
+    // if using serial port, maximum sample size is 1k less
+    #define LA_SAMPLE_SIZE 56 * 1024
+  #endif
 
 #elif Teensy_LC
 
-   // 4k buffer size
-   #define LA_SAMPLE_SIZE 4 * 1024
+  #if HARDWARE_CONFIGURATION
+    // 5k buffer size
+    #define LA_SAMPLE_SIZE 5 * 1024
+  #elif defined(NO_DEBUG)
+    // 4k buffer size
+    #define LA_SAMPLE_SIZE 4 * 1024
+  #else
+    // if using serial port, maximum sample size is 0.2k less
+    #define LA_SAMPLE_SIZE (int)(3.8 * 1024)
+  #endif
 
 #elif Teensy_3_5
-   // 186k buffer size
-   #define LA_SAMPLE_SIZE 186 * 1024
+
+   // 246k buffer sized
+   #define LA_SAMPLE_SIZE 246 * 1024
 
 #elif Teensy_3_6
-   // 250k buffer size
-   #define LA_SAMPLE_SIZE 250 * 1024
+
+   // 246k buffer size
+   #define LA_SAMPLE_SIZE 246 * 1024
 
 #else
 
@@ -170,15 +208,21 @@
 // DEBUG_SERIAL 0 causes this warning. It is not a usual warning, so ignoring it is low risk
 #pragma GCC diagnostic ignored "-Wunused-value"
 
-// this is the main data storage array. Add 20 extra bytes
-// just in case (triggering may use up to 16 extra).
+// Add extra samples just in case (triggering may use up to 16 extra).
+#define EXTRA_SAMPLES 32
+
+// this is the main data storage array.
 // Needs to be aligned to a 4 byte boundary
-byte logicData[LA_SAMPLE_SIZE + 20] __attribute__ ((aligned));
+byte logicData[LA_SAMPLE_SIZE + EXTRA_SAMPLES] __attribute__ ((aligned));
 
 enum strategyType {
   STRATEGY_NORMAL,
-  STRATEGY_PACKED,
-  STRATEGY_ASSEMBLY,
+  STRATEGY_NORMAL_RLE,
+  STRATEGY_HIGH_SPEED,
+  STRATEGY_HIGH_SPEED_RLE,
+  STRATEGY_ASM_3_CLOCKS,
+  STRATEGY_ASM_5_6_CLOCKS,
+  STRATEGY_ASM_8_CLOCKS,
 } sumpStrategy = STRATEGY_NORMAL;
 
 int currentFBUS = F_BUS;
@@ -311,7 +355,7 @@ currentFBUS = newFBUS;
 
     analogWriteFrequency (CHAN4, 25000 * multiplier / divider);
     analogWrite (CHAN4, 64);
-    analogWrite (CHAN5, 127);
+    analogWrite (CHAN5, 124);
 
     #if defined(KINETISK)
       analogWrite (CHAN6, 128);
@@ -526,46 +570,6 @@ void processSingleByteCommand (byte inByte,
       DEBUG_SERIAL(println (sumpSetup.cpuClockTicks));
       break;
 
-    case 'r':
-      sumpSetup.samplesToRecord = 2048;
-      sumpSetup.samplesRequested = sumpSetup.samplesToRecord;
-      sumpSetup.delaySamples = 0;
-
-      sumpSetup.busClockDivisor = 7;
-
-      sumpSetup.clockFrequency = F_BUS / (sumpSetup.busClockDivisor + 1);
-      sumpSetup.cpuClockTicks = F_CPU / sumpSetup.clockFrequency;
-
-      set_led_on (); // ARMED, turn on LED
-
-      // tell data recorder to start
-      sumpRunning = 1;
-      break;
-
-    // special command for debugging
-    case '5':
-/* uses lots of RAM
-      Serial.write ("logicData: ");
-      Serial.print (logicData[0], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[1], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[2], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[3], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[4], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[5], HEX);
-      Serial.print (", ");
-      Serial.print (logicData[6], HEX);
-      Serial.print (", ");
-      Serial.println (logicData[7], HEX);
-      Serial.write ("logicData (32): ");
-      Serial.println ((uint32_t)(*(uint32_t *)logicData), HEX);
-*/
-      break;
-
     // <cr>, <lf> - ignore
     case 0x0D:
     case 0x0A:
@@ -676,19 +680,41 @@ void processFiveByteCommand (byte command[],
       divisor <<= 8;
       divisor |= sumpRX.command[1];
 
+#if Teensy_3_0
+
+      // 3.0 can't keep up, so OLS is set to what it finally is. Translate back to
+      // original values here.
+
+      if (divisor == 6)
+      {
+        // OLS needs 15 CPU clocks (7 F_BUS) when Teensy tries for 8 CPU clocks (4 F_BUS)
+        divisor = 3;
+      }
+      else if (divisor == 2)
+      {
+        // OLS needs 6 CPU clocks (2 F_BUS) when Teensy tries for 3 CPU clocks (1 F_BUS)
+        divisor = 0;
+      }
+#endif
+
       // by setting device.dividerClockspeed = F_BUS, divisor is exactly equal to value to put in timer
       sumpSetup.busClockDivisor = divisor;
 
       sumpSetup.clockFrequency = F_BUS / (divisor + 1);
 
-      if (F_CPU == 144000000) {
-        // increase Bus clock by 50% and Mem clock
-        int currentFBUS = 72000000;
+      if (F_CPU >= 144000000) {
 
         // set F_BUS equal to F_CPU / 2
+        currentFBUS = F_CPU / 2;
         SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV2(0x0F)) | SIM_CLKDIV1_OUTDIV2(1);
-        // set F_MEM to F_CPU / 4
-        SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
+
+        if (F_CPU == 144000000) {
+          // set F_MEM to F_CPU / 4
+          SIM_CLKDIV1 = (SIM_CLKDIV1 & ~SIM_CLKDIV1_OUTDIV4(0x0F)) | SIM_CLKDIV1_OUTDIV4(3);
+        }
+
+        // busClockDivisor is not changed because the configuration file has the faster
+        // F_BUS value in it.
 
         sumpSetup.clockFrequency = currentFBUS / (divisor + 1);
 
@@ -740,30 +766,28 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 
   set_led_off ();
 
+#if CREATE_TEST_FREQUENCIES
+  analogWriteFrequency (3, sumpSetup.clockFrequency / 2);
+  analogWrite (3, 128);
+#endif
+
+  // set to true later if used
+  sumpSetup.rleUsed = false;
+
   sumpSetup.samplesRequested = sumpSetup.samplesToRecord;
 
-  // prevent buffer overruns
-  if (sumpSetup.samplesToRecord > (unsigned int) LA_SAMPLE_SIZE * 8) {
-    sumpSetup.samplesToRecord = (unsigned int) LA_SAMPLE_SIZE * 8;
+  // compare buffer size to 2/3rds of samples, to account for smaller buffers when debugging
+  int normalized_SamplesToRecord = (sumpSetup.samplesToRecord * 2) / 3;
+
+  // compute number of channels that can fit in the buffer
+  if (normalized_SamplesToRecord > LA_SAMPLE_SIZE * 4) {
     sumpSetup.numberOfChannels = 1;
-  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 4) {
-    sumpSetup.numberOfChannels = 1;
-  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 2) {
+  } else if (normalized_SamplesToRecord > LA_SAMPLE_SIZE * 2) {
     sumpSetup.numberOfChannels = 2;
-  } else if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE) {
+  } else if (normalized_SamplesToRecord > LA_SAMPLE_SIZE) {
     sumpSetup.numberOfChannels = 4;
   } else {
     sumpSetup.numberOfChannels = 8;
-  }
-
-  if (!sumpSetup.rleSelected)
-  {
-    // need this to get OLS client to line up trigger to time 0
-    sumpSetup.delaySamples = sumpSetup.delaySamplesRequested + 2;
-  }
-  
-  if (sumpSetup.delaySamples > sumpSetup.samplesToRecord) {
-    sumpSetup.delaySamples = sumpSetup.samplesToRecord;
   }
 
 #if HARDWARE_CONFIGURATION
@@ -783,6 +807,112 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   #endif
 
 #else
+ 
+  if (sumpSetup.cpuClockTicks <= 3)
+  {
+    sumpStrategy = STRATEGY_ASM_3_CLOCKS;
+    sumpSetup.numberOfChannels = 8;
+  }
+#if Teensy_LC
+  else if (sumpSetup.cpuClockTicks <= 6)
+  {
+    sumpStrategy = STRATEGY_ASM_5_6_CLOCKS;
+    sumpSetup.numberOfChannels = 8;
+  }
+#else
+  else if (sumpSetup.cpuClockTicks <= 5)
+  {
+    sumpStrategy = STRATEGY_ASM_5_6_CLOCKS;
+    sumpSetup.numberOfChannels = 8;
+  }
+#endif
+  else if (sumpSetup.cpuClockTicks <= 8)
+  {
+    sumpStrategy = STRATEGY_ASM_8_CLOCKS;
+    sumpSetup.numberOfChannels = 8;
+  }
+  else
+  {
+    // if RLE selected, 8 channels, and more than 48 clock ticks
+    if (sumpSetup.rleSelected &&
+        sumpSetup.numberOfChannels >= 8 &&
+        sumpSetup.cpuClockTicks > 48)
+    {
+      sumpSetup.rleUsed = true;
+      sumpStrategy = STRATEGY_NORMAL_RLE;
+    }
+    else if (sumpSetup.rleSelected &&
+        sumpSetup.numberOfChannels >= 8 &&
+        sumpSetup.cpuClockTicks > 24)
+    {
+      sumpSetup.rleUsed = true;
+      sumpStrategy = STRATEGY_HIGH_SPEED_RLE;
+    }
+    else
+    {
+      if (sumpSetup.cpuClockTicks > 48)
+      {
+        sumpStrategy = STRATEGY_NORMAL;
+      }
+      else if (sumpSetup.cpuClockTicks > 24 &&
+               sumpSetup.numberOfChannels < 8)
+      {
+        sumpStrategy = STRATEGY_NORMAL;
+      }
+      else
+      {
+// LC doesn't have enough registers to do high speed
+#if Teensy_LC
+        sumpStrategy = STRATEGY_NORMAL;
+#else
+        // 48 and 8 channels or 24 clock ticks
+        sumpStrategy = STRATEGY_HIGH_SPEED;
+        sumpSetup.numberOfChannels = 8;
+#endif
+      }
+    }
+  }
+  
+  // prevent buffer overflow
+  if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 8) &&
+      (sumpSetup.numberOfChannels == 1))
+  {
+    sumpSetup.samplesToRecord = LA_SAMPLE_SIZE * 8;
+  }
+  else if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 4) &&
+           (sumpSetup.numberOfChannels == 2))
+  {
+    sumpSetup.samplesToRecord = LA_SAMPLE_SIZE * 4;
+  }
+  else if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 2) &&
+           (sumpSetup.numberOfChannels == 4))
+  {
+    sumpSetup.samplesToRecord = LA_SAMPLE_SIZE * 2;
+  }
+  else if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE) &&
+           (sumpSetup.numberOfChannels == 8))
+  {
+    sumpSetup.samplesToRecord = LA_SAMPLE_SIZE;
+  }
+
+  if (!sumpSetup.rleSelected)
+  {
+    // don't know why it's a function of clock ticks - some kind of rounding when smaller?
+    if (sumpSetup.cpuClockTicks < 10)
+    {
+       // need this to get OLS client to line up trigger to time 0
+       sumpSetup.delaySamples = sumpSetup.delaySamplesRequested + 1;
+    }
+    else
+    {
+       // need this to get OLS client to line up trigger to time 0
+       sumpSetup.delaySamples = sumpSetup.delaySamplesRequested + 2;
+    }
+  }
+  
+  if (sumpSetup.delaySamples > sumpSetup.samplesToRecord) {
+    sumpSetup.delaySamples = sumpSetup.samplesToRecord;
+  }
 
   // if assembly language
   if (sumpSetup.cpuClockTicks <= 8)
@@ -806,7 +936,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     }
   }
 
-#endif
+#endif // if Hardware Configuration
 
   // if no trigger level was specified, use first trigger level
   if (sumpSetup.lastTriggerLevel < 0) {
@@ -841,11 +971,12 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
       break;
   }
 
-  // record 4 extra elements, for trigger adjustment later
+  // record extra samples, for trigger adjustment later
   sumpSetup.samplesToSend = sumpSetup.samplesToRecord;
-  sumpSetup.samplesToRecord = sumpSetup.samplesToRecord + 4 * sumpSetup.samplesPerElement;
+  sumpSetup.samplesToRecord = sumpSetup.samplesToRecord + EXTRA_SAMPLES;
   
   sumpSetup.startOfBuffer = (uint32_t *)logicData;
+  sumpSetup.endOfMemory = sumpSetup.startOfBuffer + LA_SAMPLE_SIZE / sumpSetup.samplesPerElement;
   sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
   
   if (sumpSetup.triggerMask[0] != 0)
@@ -860,8 +991,8 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     sumpSetup.delaySamples = 0;
   }
 
-  // add one due to truncation
-  sumpSetup.delaySizeInElements = (sumpSetup.delaySamples / sumpSetup.samplesPerElement) + 1;
+  // add extra (half of extra samples before and after trigger) for trigger adjustment at end
+  sumpSetup.delaySizeInElements = (sumpSetup.delaySamples + EXTRA_SAMPLES / 2) / sumpSetup.samplesPerElement;
 
 #if HARDWARE_CONFIGURATION
   // for hardware, needs to be an even number
@@ -874,9 +1005,6 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   dynamic.interruptedIndex = -1;
   dynamic.bufferHasWrapped = false;
 
-  // set to true later if used
-  sumpSetup.rleUsed = false;
-
   // setup timer
   startTimer (sumpSetup.busClockDivisor);
 
@@ -887,39 +1015,49 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 #else
 
 #if Teensy_LC
-  if (sumpSetup.cpuClockTicks <= 6)
+  if (sumpStrategy == STRATEGY_ASM_5_6_CLOCKS)
   {
-    sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsm6Clocks(sumpSetup, dynamic);
   }
 #else
-  if (sumpSetup.cpuClockTicks <= 5)
+  if (sumpStrategy == STRATEGY_ASM_5_6_CLOCKS)
   {
-    sumpStrategy = STRATEGY_ASSEMBLY;
     recordDataAsm5Clocks(sumpSetup, dynamic);
   }
 #endif
-  else if (sumpSetup.cpuClockTicks <= 8)
+  else if (sumpStrategy == STRATEGY_ASM_3_CLOCKS)
   {
-    sumpStrategy = STRATEGY_ASSEMBLY;
+#if Teensy_3_6
+    // need to call once to load the code in the cache so it
+    // can meet the speed requirement
+    sumpSetupVariableStruct dummySetup = sumpSetup;
+    dummySetup.triggerMask[0] = 0;
+    dummySetup.samplesToSend = 1024;
+    recordDataAsm3Clocks(dummySetup, dynamic);
+#endif
+    recordDataAsm3Clocks(sumpSetup, dynamic);
+  }
+  else if (sumpStrategy == STRATEGY_ASM_8_CLOCKS)
+  {
     recordDataAsmWithTrigger(sumpSetup, dynamic);
   }
-  else
+  else if (sumpStrategy == STRATEGY_NORMAL)
   {
-    sumpStrategy = STRATEGY_NORMAL;
-
-    // if RLE selected, 8 channels, and more than 48 clock ticks
-    if (sumpSetup.rleSelected &&
-        sumpSetup.numberOfChannels >= 8 &&
-        sumpSetup.cpuClockTicks > 48)
-    {
-      sumpSetup.rleUsed = true;
-      recordRLEData (sumpSetup, dynamic);
-    }
-    else
-    {
-      recordLowSpeedData (sumpSetup, dynamic);
-    }
+    recordLowSpeedData (sumpSetup, dynamic);
+  }
+  else if (sumpStrategy == STRATEGY_NORMAL_RLE)
+  {
+    recordRLEData (sumpSetup, dynamic);
+  }
+#if not Teensy_LC
+  else if (sumpStrategy == STRATEGY_HIGH_SPEED)
+  {
+    recordHighSpeedData_8_Channels (sumpSetup, dynamic);
+  }
+#endif
+  else if (sumpStrategy == STRATEGY_HIGH_SPEED_RLE)
+  {
+    recordHighSpeedRLEData (sumpSetup, dynamic);
   }
 
 #endif
@@ -927,8 +1065,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   // if not halted early (except RLE always sends data when halted)
   if (sumpRunning || sumpSetup.rleSelected)
   {
-DEBUG_SERIAL(println("  calling sendData"));
-     sendData (sumpSetup, dynamic);
+    sendData (sumpSetup, dynamic);
   }
 
   SUMPreset();
@@ -941,19 +1078,27 @@ inline void waitForTimeout (void)
     digitalWriteFast (TIMING_PIN_0, HIGH);
   #endif
 
-   // for speed, to reduce jitter
-   waitStart:
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (TIMER_FLAG_REGISTER) goto waitEnd;
-   if (!TIMER_FLAG_REGISTER) goto waitStart;
+  // for speed, to reduce jitter
+  if (TIMER_FLAG_REGISTER)
+  {
+    clearTimerFlag ();  
+  } else if (TIMER_FLAG_REGISTER) {
+    clearTimerFlag ();  
+  } else {
 
-   waitEnd:
-   clearTimerFlag ();
+    waitStart:
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (TIMER_FLAG_REGISTER) goto waitEnd;
+    if (!TIMER_FLAG_REGISTER) goto waitStart;
+
+    waitEnd:
+    clearTimerFlag ();
+  }
 
   #ifdef TIMING_DISCRETES     
     digitalWriteFast (TIMING_PIN_0, LOW);

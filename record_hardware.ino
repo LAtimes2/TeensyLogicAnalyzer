@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2016 LAtimes2
+ * Copyright (c) 2018 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -697,7 +697,7 @@ inline void startSPIClock (bool multipleChannels,
 
     volatile uint32_t *SPI0_MCR_reg = &SPI0_MCR;
     volatile uint32_t *SPI1_MCR_reg = &SPI1_MCR;
-    uint32_t SPI_MCR_value = SPI_MCR_MSTR | SPI_MCR_PCSIS(0x1F) | SPI_MCR_CONT_SCKE;
+    uint32_t SPI_MCR_value = SPI_MCR_MSTR | SPI_MCR_PCSIS(0x1F) | SPI_MCR_CONT_SCKE | SPI_MCR_DIS_TXF | SPI_MCR_DIS_RXF | SPI_MCR_CLR_TXF | SPI_MCR_CLR_RXF;
 
     if (cpuClockTicks <= 2) {
       // start the SPI channels 2 ticks apart, so they are exactly
