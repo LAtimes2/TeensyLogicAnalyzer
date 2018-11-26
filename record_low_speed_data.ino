@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2016 LAtimes2
+ * Copyright (c) 2018 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -83,7 +83,6 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
       *(inputPtr) = workingValue;
       ++inputPtr;
 
-
       // adjust for circular buffer wraparound at the end
       if (inputPtr >= endOfBuffer)
       {
@@ -109,15 +108,7 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
         #endif
       }
       
-      workingCount = samplesPerElementMinusOne;
-
-      waitForTimeout ();
-
-      // first value after saving workingValue doesn't need to
-      // shift previous value nor mask off extra bits. This saves
-      // time that was used saving workingValue above.
-      workingValue = PORT_DATA_INPUT_REGISTER;
-
+      workingCount = samplesPerElement;
     }  // if workingCount == 0
 
     // this state cannot afford enough time for the switch statement
@@ -165,8 +156,12 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
 
       switch (state) {
         case LookingForTrigger :
-        // already done above
-        break;
+          // already done above
+          break;
+
+        case LookingForSimpleTrigger :
+          // not used at low speeds
+          break;
 
         case TriggerDelay :
           --triggerDelay;

@@ -1,4 +1,71 @@
+Pattern Generator is in GitHub next to the Logic Analyzer:
+
+Set 1:
+Chan(pin)   PG Pin - signal
+  0 (2)      29 - low-going pulse every 10 seconds
+  1 (14)      5 - 1000 Hz, 50 % duty cycle
+  2 (7)       4 - user specified, 50 % duty cycle
+  3 (8)       6 - user specified/2, 50   % duty cycle
+  4 (6)       9 - user specified/2, 12.5 % duty cycle
+  5 (20)     10 - user specified/2, 25   % duty cycle
+  6 (21)     20 - user specified/2, 37.5 % duty cycle
+  7 (5)      23 - user specified/2, 87.5 % duty cycle
+
+Set 2:
+Chan(pin)   PG Pin - signal
+  0 (2)      32 - Uart "?1fU" at 115200 baud
+  1 (14)     30 - PWM 0.1 Hz (10 second period),  1% duty cycle (high-going pulse every 10 seconds)
+  2 (7)      25 - software pattern, 4 pulses, each one wider
+  3 (8)      33 - Uart "?1fU" at 1,843,200 baud
+  4 (6)       1 - Uart "?1fU" at 9600 baud
+  5 (20)     16 - PWM 5954 Hz, 50% duty cycle (3.6 only)
+  6 (21)      7 - PWM 62,500 Hz, 49% duty cycle
+  7 (5)       8 - PWM 62,500 Hz, 50% duty cycle
+
+
 Basic:
+
+1. Demo Mode
+1.1 Open OLS GUI
+1.2 Load Firmware
+1.3 Show device metadata
+
+2. Normal mode
+2.1 Open OLS GUI
+2.2 Load Firmware
+2.3 Show device metadata
+
+2.4 Set 1 of pattern generator
+
+Foreach of 1st - 4th freqs:
+1. Set pattern generator to 1/4th of freq
+2. Record at default buffer size
+3. Verify
+2.4.1 Set pattern generator user frequency to 5th highest freq
+2.4.2 Record at 3rd highest (highest non-asm)
+2.4.2.1 Verify ch 1 is 1 KHz
+2.4.2.2 Verify ch 2,3,4,5,6,7 are the same pattern throughout
+2.4.3 Record at 4th highest
+2.4.3.1 Verify ch 3,5 are the same pattern throughout
+2.4.3.2 Verify ch 4 is mostly low, ch 7 is mostly high
+2.4.1 Set pattern generator user frequency to 3rd highest freq
+2.4.2 Record at 3rd highest (highest non-asm)
+2.4.2.2 Verify ch 3,4,5,6,7 are the same pattern throughout
+
+Trigger
+
+1,2,4 channels
+
+RLE
+
+
+
+2.5 Set 2 of pattern generator
+2.5.1 Record at default MHz, no trigger
+2.5.1.1 Verify no unusual data at beginning or end
+2.5.1.2 Verify ch 1 shortest pulses are about 8.68 usec
+
+2.5.x Complex trigger: ch 1 high, ch 5 high, ch 0 high, delay 32, ch 7 high.
 
 3.1:
 
@@ -131,6 +198,16 @@ Trigger:
 
 
 Hardware:
+
+Set 1:
+Chan(pin)   PG Pin - signal
+  0 (1)       3 - user specified, 50 % duty cycle
+  1 (8)       6 - user specified/2, 50 % duty cycle
+
+Set 1:
+Chan(pin)   PG Pin - signal
+  0 (1)      30 - PWM 0.1 Hz (10 second period),  1% duty cycle
+  1 (8)      33 - Uart "?1fU" at 1,843,200 baud (543 nsec/bit)
 
 3.1:
 

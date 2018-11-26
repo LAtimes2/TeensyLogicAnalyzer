@@ -31,38 +31,85 @@
 // channel 7 for 8 channel mode, channel 3 for 4 channel mode). This
 // means that the highest channel cannot be used for data.
 //
-void recordRLEData (sumpSetupVariableStruct &sv,
-                    sumpDynamicVariableStruct &dynamic)
+void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
+                             sumpDynamicVariableStruct &dynamic)
 {
-  bool bufferHasWrapped = false;
+  // hard-code values since always 8 channels
+  const byte samplesPerElement = 4;
+  const byte samplesPerElementMinusOne = 3;
+  const uint32_t sampleMask = 0x7F;
+  const uint32_t sampleShift = 8;
+  const uint32_t rleCountIndicator = 0x80;
+  const uint32_t anyDataMask = 0x80808080;
+
+// packed booleans can be written/read as fast as regular booleans
+struct Packed_Bools {
+  bool bufferHasWrapped : 1;
+  bool doneRecording    : 1;
+  bool rleInProgress    : 1;
+  bool simpleTrigger    : 1;
+  bool skipWait         : 1;
+};
+
+union Packed_Bools_Union {
+  Packed_Bools b;
+  int32_t integer;
+};
+
+// pack into a single int to fit in 1 register
+struct Packed_Type {
+  uint8_t triggerMask   : 8;
+  uint8_t triggerValue  : 8;
+  uint16_t triggerDelay : 16;
+};
+
+union Packed_Union {
+  Packed_Type p;
+  int32_t integer;
+};
+
+Packed_Bools_Union bools;
+Packed_Union packed;
+Packed_Union triggerArray[4];
+
+
+////  bool bufferHasWrapped = false;
+bools.b.bufferHasWrapped = false;
   int elementsToRecord = sv.samplesToRecord / sv.samplesPerElement;
   register uint32_t *inputPtr = (uint32_t *)sv.startOfBuffer;
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
   uint32_t *startPtr = (uint32_t *)sv.startOfBuffer;
-  byte samplesPerElement = sv.samplesPerElement;
-  byte samplesPerElementMinusOne = samplesPerElement - 1;
+////  byte samplesPerElement = sv.samplesPerElement;
+////  byte samplesPerElementMinusOne = samplesPerElement - 1;
   
   // shift right 1 to mask off upper channel, which is used for RLE
-  uint32_t sampleMask = sv.sampleMask >> 1;
-  uint32_t anyDataMask = sv.anyDataMask;;
+////  uint32_t sampleMask = sv.sampleMask >> 1;
+////  uint32_t anyDataMask = sv.anyDataMask;;
 
   // this is to set the highest channel for an RLE count
-  uint32_t rleCountIndicator = sv.rleCountIndicator;
+////  uint32_t rleCountIndicator = sv.rleCountIndicator;
 
-  uint32_t sampleShift = sv.sampleShift;
+////  uint32_t sampleShift = sv.sampleShift;
   int sampleValue = -1;
-  int previousSampleValue = -1;
+//  int previousSampleValue = -1;
   uint32_t previousFirstValue = 0;
-  bool rleInProgress = false;
-  int triggerCount = samplesPerElementMinusOne;
+////  bool rleInProgress = false;
+bools.b.rleInProgress = false;
+//  int triggerCount = samplesPerElementMinusOne;
   register int workingCount = samplesPerElementMinusOne + 1;
   register uint32_t workingValue = 0;
 
+  bools.b.simpleTrigger = false;
+  bools.b.skipWait = false;
+
   int currentTriggerLevel = 0;
-  uint32_t triggerMask = sv.triggerMask[0];
-  uint32_t triggerValue = sv.triggerValue[0];
-  uint32_t triggerDelay = sv.triggerDelay[0];
+////  uint32_t triggerMask = sv.triggerMask[0];
+////  uint32_t triggerValue = sv.triggerValue[0];
+////  uint32_t triggerDelay = sv.triggerDelay[0];
+packed.p.triggerMask = sv.triggerMask[0];
+packed.p.triggerValue = sv.triggerValue[0];
+packed.p.triggerDelay = sv.triggerDelay[0];
 
   // state is not used except to make a switch context for ptr
   stateType state;
@@ -71,10 +118,40 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   // Label names are the case names with '_Label' added
   register void *switch_ptr;
 
+  // set up trigger array
+  if (sv.lastTriggerLevel == 0)
+  {
+    currentTriggerLevel = 0;
+
+    if (sv.triggerDelay[0] == 0)
+    {
+      bools.b.simpleTrigger = true;
+    }
+DEBUG_SERIAL (print("Packed int:"));
+DEBUG_SERIAL (println(packed.integer, HEX));
+  }
+  else if (sv.lastTriggerLevel == 1)
+  {
+    currentTriggerLevel = 1;
+    triggerArray[0].integer = sv.triggerMask[1] + (sv.triggerValue[1] << 8) + (sv.triggerDelay[1] << 16);
+  }
+  else if (sv.lastTriggerLevel == 2)
+  {
+    currentTriggerLevel = 2;
+    triggerArray[1].integer = sv.triggerMask[1] + (sv.triggerValue[1] << 8) + (sv.triggerDelay[1] << 16);
+    triggerArray[0].integer = sv.triggerMask[2] + (sv.triggerValue[2] << 8) + (sv.triggerDelay[2] << 16);
+  }
+  else if (sv.lastTriggerLevel == 3)
+  {
+    currentTriggerLevel = 3;
+    triggerArray[2].integer = sv.triggerMask[1] + (sv.triggerValue[1] << 8) + (sv.triggerDelay[1] << 16);
+    triggerArray[1].integer = sv.triggerMask[2] + (sv.triggerValue[2] << 8) + (sv.triggerDelay[2] << 16);
+    triggerArray[0].integer = sv.triggerMask[3] + (sv.triggerValue[3] << 8) + (sv.triggerDelay[3] << 16);
+  }
+
   // if using a trigger
   if (sv.triggerMask[0])
   {
-    //state = Buffering;
     switch_ptr = &&Buffering_Label;
 
     // position to arm the trigger
@@ -82,7 +159,6 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   }
   else
   {
-    //state = Triggered_Second_Pass;
     switch_ptr = &&Triggered_Second_Pass_Label;
 
     startPtr = endOfBuffer;
@@ -100,13 +176,36 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   // (for speed, use while (1) and break instead of while (inputPtr != startPtr))
   while (1)
   {
-    waitForTimeout ();
-
-    // read a sample
-    sampleValue = PORT_DATA_INPUT_REGISTER & sampleMask;
-
-    if (sampleValue != previousSampleValue)
+/*
+    if (bools.b.skipWait)
     {
+      bools.b.skipWait = false;
+      clearTimerFlag ();
+    }
+    else
+*/
+    {
+////    waitForTimeout ();
+waitForTimeout3 ();
+    }
+
+////Skip_Wait_Label:
+////          digitalWriteFast (TIMING_PIN_1, LOW);
+    // read a sample
+//    sampleValue = PORT_DATA_INPUT_REGISTER & sampleMask;
+
+if ((PORT_DATA_INPUT_REGISTER & sampleMask) != (uint32_t)sampleValue)
+////if ((temp = (PORT_DATA_INPUT_REGISTER & sampleMask)) != sampleValue)
+//    if (sampleValue != previousSampleValue)
+    {
+sampleValue = PORT_DATA_INPUT_REGISTER & sampleMask;
+////sampleValue = temp;
+
+        #ifdef TIMING_DISCRETES
+toggleTimingPin1 ();
+        #endif
+//      bools.b.skipWait = true;
+
       // if previous rle count has not been written
       if (workingCount == 0)
       {
@@ -114,7 +213,7 @@ void recordRLEData (sumpSetupVariableStruct &sv,
           digitalWriteFast (TIMING_PIN_3, HIGH);
         #endif
 
-        *(inputPtr) = workingValue;
+        *inputPtr = workingValue;
         ++inputPtr;
 
         // adjust for circular buffer wraparound at the end
@@ -126,7 +225,7 @@ void recordRLEData (sumpSetupVariableStruct &sv,
 
           inputPtr = startOfBuffer;
 
-          bufferHasWrapped = true;
+          bools.b.bufferHasWrapped = true;
 
           // if any data is received from PC, then stop (assume it is a reset)
           if (usbInterruptPending ())
@@ -157,8 +256,8 @@ void recordRLEData (sumpSetupVariableStruct &sv,
         --workingCount;
       }
 
-      previousSampleValue = sampleValue;
-      rleInProgress = false;
+//      previousSampleValue = sampleValue;
+      bools.b.rleInProgress = false;
     }
     else  // same
     {
@@ -166,44 +265,48 @@ void recordRLEData (sumpSetupVariableStruct &sv,
         digitalWriteFast (TIMING_PIN_2, HIGH);
       #endif
 
-      if (rleInProgress == false)
+      if (bools.b.rleInProgress == false)
       {
         // save count for previous value
-        workingValue = (workingValue << sampleShift) + rleCountIndicator;
+        workingValue = (workingValue << sampleShift) + rleCountIndicator + 1;
         --workingCount;
 
-        rleInProgress = true;
+        bools.b.rleInProgress = true;
       }
-
-      // number of RLE instances is stored in the working Value
-      workingValue++;
-
-      // if RLE count is at the maximum value
-      if ((workingValue & sampleMask) == sampleMask)
+      else
       {
-        #ifdef TIMING_DISCRETES_2
-          digitalWriteFast (TIMING_PIN_4, HIGH);
-        #endif
+        // number of RLE instances is stored in the working Value
+        workingValue++;
 
-        // force current count to be written and new count started
-        rleInProgress = false;
-
-        // not enough time to check if also going to write working value
-        if (workingCount != 0)
+        // if RLE count is at the maximum value
+        if ((workingValue & sampleMask) == sampleMask)
         {
-          // if any data is received from PC, then stop (assume it is a reset)
-          if (usbInterruptPending ())
-          {
-            DEBUG_SERIAL(print(" Halt due to USB interrupt"));
-            set_led_off ();
-            SUMPreset();
-            break;
-          }
-        }
+          #ifdef TIMING_DISCRETES_2
+            digitalWriteFast (TIMING_PIN_4, HIGH);
+          #endif
 
-        #ifdef TIMING_DISCRETES_2
-          digitalWriteFast (TIMING_PIN_4, LOW);
-        #endif
+          // force current count to be written and new count started
+          bools.b.rleInProgress = false;
+
+          // not enough time to check if also going to write working value
+          if (workingCount != 0)
+          {
+            // if any data is received from PC, then stop (assume it is a reset)
+            if (usbInterruptPending ())
+            {
+              DEBUG_SERIAL(print(" Halt due to USB interrupt"));
+              set_led_off ();
+              SUMPreset();
+              break;
+            }
+          }
+
+          #ifdef TIMING_DISCRETES_2
+            digitalWriteFast (TIMING_PIN_4, LOW);
+digitalWriteFast (TIMING_PIN_4, HIGH);
+digitalWriteFast (TIMING_PIN_4, LOW);
+          #endif
+        }
       }
 
       #ifdef TIMING_DISCRETES_2
@@ -212,13 +315,13 @@ void recordRLEData (sumpSetupVariableStruct &sv,
     }
 
     // save the working value when it is full
-    if (workingCount == 0 && rleInProgress == false)
+    if (workingCount == 0 && bools.b.rleInProgress == false)
     {
       #ifdef TIMING_DISCRETES_2
         digitalWriteFast (TIMING_PIN_3, HIGH);
       #endif
 
-      *(inputPtr) = workingValue;
+      *inputPtr = workingValue;
       ++inputPtr;
 
       // adjust for circular buffer wraparound at the end
@@ -230,7 +333,7 @@ void recordRLEData (sumpSetupVariableStruct &sv,
 
         inputPtr = startOfBuffer;
 
-        bufferHasWrapped = true;
+        bools.b.bufferHasWrapped = true;
 
         // if any data is received from PC, then stop (assume it is a reset)
         if (usbInterruptPending ())
@@ -261,9 +364,9 @@ void recordRLEData (sumpSetupVariableStruct &sv,
       // buffer because it wrapped arn overwrote the original first value.
 
       // if any data (i.e. not just RLE counts) in this value, save it
-      if ((*(inputPtr) & anyDataMask) != anyDataMask)
+      if ((*inputPtr & anyDataMask) != anyDataMask)
       {
-        previousFirstValue = *(inputPtr);
+        previousFirstValue = *inputPtr;
       }
     }
 
@@ -276,26 +379,42 @@ void recordRLEData (sumpSetupVariableStruct &sv,
     goto *switch_ptr;
 
     switch (state) {
+      case LookingForSimpleTrigger :
+      LookingForSimpleTrigger_Label:
+        // if trigger has occurred
+        if ((sampleValue & packed.p.triggerMask) == packed.p.triggerValue)
+        {
+          // last location to save
+          startPtr = inputPtr - sv.delaySizeInElements;
+
+          // move to triggered state
+//            state = Triggered_First_Pass;
+switch_ptr = &&Triggered_First_Pass_Label;
+          #ifdef TIMING_DISCRETES
+            digitalWriteFast (TIMING_PIN_1, LOW);
+          #endif
+
+        }
+        break;
+
       case LookingForTrigger :
       LookingForTrigger_Label:
         // if trigger has occurred
-        if ((sampleValue & triggerMask) == triggerValue)
+        if ((sampleValue & packed.p.triggerMask) == packed.p.triggerValue)
         {
-          if (triggerDelay > 0) {
-            //state = TriggerDelay;
-            switch_ptr = &&TriggerDelay_Label;
+          if (packed.p.triggerDelay > 0) {
+//          state = TriggerDelay;
+switch_ptr = &&TriggerDelay_Label;
           } else {
             // if last trigger level
-            if (currentTriggerLevel >= sv.lastTriggerLevel)
+            if (currentTriggerLevel == 0)
             {
-              triggerCount = workingCount;
-
               // last location to save
               startPtr = inputPtr - sv.delaySizeInElements;
 
               // move to triggered state
-              //state = Triggered_First_Pass;
-              switch_ptr = &&Triggered_First_Pass_Label;
+//            state = Triggered_First_Pass;
+switch_ptr = &&Triggered_First_Pass_Label;
               #ifdef TIMING_DISCRETES
                 digitalWriteFast (TIMING_PIN_1, LOW);
               #endif
@@ -307,9 +426,8 @@ void recordRLEData (sumpSetupVariableStruct &sv,
               #endif
 
               // advance to next trigger level
-              ++currentTriggerLevel;
-              triggerMask = sv.triggerMask[currentTriggerLevel];
-              triggerValue = sv.triggerValue[currentTriggerLevel];
+              --currentTriggerLevel;
+              packed.integer = triggerArray[currentTriggerLevel].integer;
 
               #ifdef TIMING_DISCRETES
                 digitalWriteFast (TIMING_PIN_1, HIGH);
@@ -320,33 +438,29 @@ void recordRLEData (sumpSetupVariableStruct &sv,
         break;
 
         case TriggerDelay :
-        TriggerDelay_Label:
-          --triggerDelay;
-          if (triggerDelay == 0) {
+TriggerDelay_Label:
+          --packed.p.triggerDelay;
+          if (packed.p.triggerDelay == 0) {
             // if last trigger level
-            if (currentTriggerLevel >= sv.lastTriggerLevel) {
-              triggerCount = workingCount;
-      
+            if (currentTriggerLevel == 0) {
               // last location to save
               startPtr = inputPtr - sv.delaySizeInElements;
 
               // move to triggered state
-              //state = Triggered_First_Pass;
-              switch_ptr = &&Triggered_First_Pass_Label;
+//              state = Triggered_First_Pass;
+switch_ptr = &&Triggered_First_Pass_Label;
 
             } else {
-              ++currentTriggerLevel;
-              triggerMask = sv.triggerMask[currentTriggerLevel];
-              triggerValue = sv.triggerValue[currentTriggerLevel];
-              triggerDelay = sv.triggerDelay[currentTriggerLevel];
-              //state = LookingForTrigger;
-              switch_ptr = &&LookingForTrigger_Label;
+              --currentTriggerLevel;
+              packed.integer = triggerArray[currentTriggerLevel].integer;
+//              state = LookingForTrigger;
+switch_ptr = &&LookingForTrigger_Label;
             }
           }
           break;
 
         case Triggered:
-        Triggered_Label:
+Triggered_Label:
           if (inputPtr == startPtr) {
             // done recording. Use a goto for speed so that
             // no 'if' needed to check for done in the main loop
@@ -355,13 +469,13 @@ void recordRLEData (sumpSetupVariableStruct &sv,
           break;
 
         case Buffering:
-        Buffering_Label:
+Buffering_Label:
           // if enough data is buffered
           if (inputPtr >= startPtr)
           {
             // move to armed state
-            //state = LookingForTrigger;
-            switch_ptr = &&LookingForTrigger_Label;
+//            state = LookingForTrigger;
+switch_ptr = &&LookingForTrigger_Label;
             set_led_on ();
 
             #ifdef TIMING_DISCRETES
@@ -371,7 +485,7 @@ void recordRLEData (sumpSetupVariableStruct &sv,
           break;
 
         case Triggered_Second_Pass:
-        Triggered_Second_Pass_Label:
+Triggered_Second_Pass_Label:
           // adjust for circular buffer wraparound at the end.
           if (startPtr < startOfBuffer)
           {
@@ -379,8 +493,8 @@ void recordRLEData (sumpSetupVariableStruct &sv,
           }
 
           // move to triggered state
-          //state = Triggered;
-          switch_ptr = &&Triggered_Label;
+//          state = Triggered;
+switch_ptr = &&Triggered_Label;
 
           #ifdef TIMING_DISCRETES
             digitalWriteFast (TIMING_PIN_1, LOW);
@@ -388,14 +502,15 @@ void recordRLEData (sumpSetupVariableStruct &sv,
           break;
 
         case Triggered_First_Pass:
-        Triggered_First_Pass_Label:
+ Triggered_First_Pass_Label:
           // go as fast as possible to try to catch up from Triggered state
-          //state = Triggered_Second_Pass;
-          switch_ptr = &&Triggered_Second_Pass_Label;
+//          state = Triggered_Second_Pass;
+switch_ptr = &&Triggered_Second_Pass_Label;
           set_led_off (); // TRIGGERED, turn off LED
           break;
-    }  // switch
- 
+      }
+//    }  // if state == LookingForTrigger
+
   } // while (1)
 
   DoneRecording:
@@ -412,9 +527,9 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   sv.firstRLEValue = previousFirstValue;
 
   // adjust trigger count
-  dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne - triggerCount;
+  dynamic.triggerSampleIndex = (startPtr + sv.delaySizeInElements - startOfBuffer) * samplesPerElement + samplesPerElementMinusOne;
 
-  dynamic.bufferHasWrapped = bufferHasWrapped;
+  dynamic.bufferHasWrapped = bools.b.bufferHasWrapped;
 
   // adjust for circular buffer wraparound at the end.
   if (dynamic.triggerSampleIndex >= (uint32_t)sv.samplesToRecord)
@@ -435,7 +550,71 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   }
 }
 
+inline void toggleTimingPin0 () {
+  *portToggleRegister (TIMING_PIN_0) = 1;
+}
+inline void toggleTimingPin1 () {
+////  *portToggleRegister (TIMING_PIN_1) = 1;
+*portToggleRegister (TIMING_PIN_3) = 1;
+}
+
+inline void waitForTimeout2 (void)
+{
+  #ifdef TIMING_DISCRETES
+    toggleTimingPin0 ();
+  #endif
 
 
+  // for speed, to reduce jitter
+  if (TIMER_FLAG_REGISTER)
+  {
+    clearTimerFlag ();  
+  } else if (TIMER_FLAG_REGISTER) {
+    clearTimerFlag ();  
+  } else {
+//    digitalWriteFast (TIMING_PIN_0, LOW);
+//    while (!TIMER_FLAG_REGISTER);
+//    digitalWriteFast (TIMING_PIN_0, HIGH);
+//    clearTimerFlag ();  
+//  }
+
+
+   waitStart:
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (TIMER_FLAG_REGISTER) goto waitEnd;
+   if (!TIMER_FLAG_REGISTER) goto waitStart;
+
+   waitEnd:
+   clearTimerFlag ();
+}
+
+  #ifdef TIMING_DISCRETES     
+    toggleTimingPin0 ();
+  #endif
+}
+
+inline void waitForTimeout3 (void)
+{
+  #ifdef TIMING_DISCRETES     
+//    digitalWriteFast (TIMING_PIN_0, HIGH);
+    toggleTimingPin0 ();
+  #endif
+
+  // WaitCount has to be less than cpu cycles in the shortest
+  // loop (Do_Triggered?), so that it doesn't start too early
+  const int WaitCount = 24 / (F_CPU / F_BUS);
+  
+  while (PIT_CVAL0 > WaitCount);
+
+  #ifdef TIMING_DISCRETES     
+//    digitalWriteFast (TIMING_PIN_0, LOW);
+    toggleTimingPin0 ();
+  #endif
+}
 
 
