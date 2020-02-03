@@ -1,6 +1,8 @@
 # TeensyLogicAnalyzer
 Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
+(Note: Does not work with Teensy 4 yet. Coming soon)
+
 Two modes:
 
 * Basic (default) - I just want to record up to 8 signals at up to about 1 MHz. Higher speeds (6 to 48 MHz) are available with some restrictions.
