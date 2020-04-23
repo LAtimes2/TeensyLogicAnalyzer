@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2020 LAtimes2
  *
  * The MIT License (MIT)
  *
@@ -38,6 +38,28 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 //   Serial : interface to SUMP user interface
 //   Serial1/2/3 : debug info (if turned on)
 
+// define the various types of Teensy's
+
+// Teensy 3.0
+#if defined(__MK20DX128__)
+  #define Teensy_3_0 1
+// Teensy 3.2
+#elif defined(__MK20DX256__)
+  #define Teensy_3_2 1
+// Teensy LC
+#elif defined(__MKL26Z64__)
+  #define Teensy_LC 1
+// Teensy 3.5
+#elif defined(__MK64FX512__)
+  #define Teensy_3_5 1
+// Teensy 3.6
+#elif defined(__MK66FX1M0__)
+  #define Teensy_3_6 1
+// Teensy 4.0
+#elif defined(__IMXRT1062__)
+  #define Teensy_4_0 1
+#endif
+
 //
 //  User Configuration settings
 //
@@ -56,6 +78,14 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
 #else
 
+  #if Teensy_4_0
+
+#define CHAN0 10
+#define CHAN1 12
+#define CHAN2 11
+
+  #else
+
 #define CHAN0 2
 #define CHAN1 14
 #define CHAN2 7
@@ -64,6 +94,8 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 #define CHAN5 20
 #define CHAN6 21
 #define CHAN7 5
+
+  #endif
 
 #endif
 
@@ -83,7 +115,15 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 #include <stdint.h>
 #include "types.h"
 
+#if Teensy_4_0
+// beta release
+#define VERSION "4.1 beta"
+
+#else
+
 #define VERSION "4.1"
+
+#endif
 
 //#define TIMING_DISCRETES   // if uncommented, set pins 0 and 1 for timing
 //#define TIMING_DISCRETES_2 // if uncommented, more timing detail
@@ -95,25 +135,6 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 //#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
 //#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
-
-// define the various types of Teensy's
-
-// Teensy 3.0
-#if defined(__MK20DX128__)
-  #define Teensy_3_0 1
-// Teensy 3.2
-#elif defined(__MK20DX256__)
-  #define Teensy_3_2 1
-// Teensy LC
-#elif defined(__MKL26Z64__)
-  #define Teensy_LC 1
-// Teensy 3.5
-#elif defined(__MK64FX512__)
-  #define Teensy_3_5 1
-// Teensy 3.6
-#elif defined(__MK66FX1M0__)
-  #define Teensy_3_6 1
-#endif
 
 // Program requires about 1k bytes for local variables. The buffer sizes
 // below have been set to be as large as possible while leaving 1k.
@@ -164,6 +185,11 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
    // 246k buffer size
    #define LA_SAMPLE_SIZE 246 * 1024
 
+#elif Teensy_4_0
+
+   // 460k buffer size
+   #define LA_SAMPLE_SIZE 460 * 1024
+
 #else
 
    // 4k buffer size
@@ -171,8 +197,13 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
 #endif
 
-// use Port D for sampling
-#define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
+#if Teensy_4_0
+   // use Port 7 for sampling
+   #define PORT_DATA_INPUT_REGISTER  GPIO7_PSR
+#else
+   // use Port D for sampling
+   #define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
+#endif
 
 // PIT timer registers
 #define TIMER_CONTROL_REGISTER    PIT_TCTRL0
@@ -224,6 +255,16 @@ enum strategyType {
   STRATEGY_ASM_5_6_CLOCKS,
   STRATEGY_ASM_8_CLOCKS,
 } sumpStrategy = STRATEGY_NORMAL;
+
+#if Teensy_4_0
+
+int F_BUS = F_BUS_ACTUAL;
+
+// cpu clock cycles between samples
+uint32_t cpuClockCycles;
+uint32_t previousSampleTime;
+
+#endif
 
 int currentFBUS = F_BUS;
 uint32_t sumpRunning = 0;
@@ -285,11 +326,13 @@ void setup()
   pinMode(CHAN0, INPUT);
   pinMode(CHAN1, INPUT);
   pinMode(CHAN2, INPUT);
+#if not Teensy_4_0
   pinMode(CHAN3, INPUT);
   pinMode(CHAN4, INPUT);
   pinMode(CHAN5, INPUT);
   pinMode(CHAN6, INPUT);
   pinMode(CHAN7, INPUT);
+#endif
 
 #endif
 
@@ -307,6 +350,7 @@ void setup()
 
 #endif
 
+  blinkled();
   blinkled();
 
   setupTestFrequencies (F_BUS);
@@ -520,7 +564,17 @@ void processSingleByteCommand (byte inByte,
           Serial.write("Teensy48");
         #endif
       } else {
-        Serial.write("Teensy");
+        #if Teensy_4_0
+           if (F_CPU == 600000000) {
+              Serial.write("Teensy40_600");
+           } else if (F_CPU == 816000000) {
+              Serial.write("Teensy40_816");
+           } else {
+              Serial.write("Teensy");
+           }
+        #else
+           Serial.write("Teensy");
+        #endif
       }
       Serial.write(0x00);
       // firmware version string
@@ -700,6 +754,7 @@ void processFiveByteCommand (byte command[],
       // by setting device.dividerClockspeed = F_BUS, divisor is exactly equal to value to put in timer
       sumpSetup.busClockDivisor = divisor;
 
+#if not Teensy_4_0
       sumpSetup.clockFrequency = F_BUS / (divisor + 1);
 
       if (F_CPU >= 144000000) {
@@ -720,6 +775,10 @@ void processFiveByteCommand (byte command[],
 
         setupTestFrequencies (currentFBUS);
       }
+#else
+      // Teensy 4 does not use F_BUS for logic analyzer, so config file sets it to F_CPU
+      sumpSetup.clockFrequency = F_CPU_ACTUAL / (divisor + 1);
+#endif
 
       #if HARDWARE_CONFIGURATION
       if (F_CPU > 150000000) {
@@ -730,6 +789,9 @@ void processFiveByteCommand (byte command[],
 
       sumpSetup.cpuClockTicks = F_CPU / sumpSetup.clockFrequency;
 
+#if Teensy_4_0
+      cpuClockCycles = sumpSetup.cpuClockTicks;
+#endif
       break;
 
     case SUMP_CAPTURE_COUNT:
@@ -808,25 +870,31 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 
 #else
  
+#if Teensy_4_0
+  // GPIO read seems to take 8 clock cycles
+  if (sumpSetup.cpuClockTicks <= 8)
+#else
   if (sumpSetup.cpuClockTicks <= 3)
+#endif
   {
     sumpStrategy = STRATEGY_ASM_3_CLOCKS;
     sumpSetup.numberOfChannels = 8;
   }
 #if Teensy_LC
   else if (sumpSetup.cpuClockTicks <= 6)
-  {
-    sumpStrategy = STRATEGY_ASM_5_6_CLOCKS;
-    sumpSetup.numberOfChannels = 8;
-  }
 #else
   else if (sumpSetup.cpuClockTicks <= 5)
+#endif
   {
     sumpStrategy = STRATEGY_ASM_5_6_CLOCKS;
     sumpSetup.numberOfChannels = 8;
   }
-#endif
+#if Teensy_4_0
+  // GPIO read seems to take 8 clock cycles
+  else if (sumpSetup.cpuClockTicks <= 11)
+#else
   else if (sumpSetup.cpuClockTicks <= 8)
+#endif
   {
     sumpStrategy = STRATEGY_ASM_8_CLOCKS;
     sumpSetup.numberOfChannels = 8;
@@ -836,7 +904,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     // if RLE selected, 8 channels, and more than 48 clock ticks
     if (sumpSetup.rleSelected &&
         sumpSetup.numberOfChannels >= 8 &&
+#if Teensy_4_0
+        sumpSetup.cpuClockTicks > 24)
+#else
         sumpSetup.cpuClockTicks > 48)
+#endif
     {
       sumpSetup.rleUsed = true;
       sumpStrategy = STRATEGY_NORMAL_RLE;
@@ -850,7 +922,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     }
     else
     {
+#if Teensy_4_0
+      if (sumpSetup.cpuClockTicks > 11)
+#else
       if (sumpSetup.cpuClockTicks > 48)
+#endif
       {
         sumpStrategy = STRATEGY_NORMAL;
       }
@@ -915,7 +991,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   }
 
   // if assembly language
+#if Teensy_4_0
+  if (sumpSetup.cpuClockTicks <= 11)
+#else
   if (sumpSetup.cpuClockTicks <= 8)
+#endif
   {
     // assembly only does 1 sample per byte
     sumpSetup.numberOfChannels = 8;
@@ -1027,7 +1107,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 #endif
   else if (sumpStrategy == STRATEGY_ASM_3_CLOCKS)
   {
-#if Teensy_3_6
+#if Teensy_3_6 || Teensy_4_0
     // need to call once to load the code in the cache so it
     // can meet the speed requirement
     sumpSetupVariableStruct dummySetup = sumpSetup;
@@ -1035,6 +1115,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     dummySetup.samplesToSend = 1024;
     recordDataAsm3Clocks(dummySetup, dynamic);
 #endif
+
     recordDataAsm3Clocks(sumpSetup, dynamic);
   }
   else if (sumpStrategy == STRATEGY_ASM_8_CLOCKS)
@@ -1071,12 +1152,21 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   SUMPreset();
 }
 
-
 inline void waitForTimeout (void)
 {
-  #ifdef TIMING_DISCRETES     
+  #ifdef TIMING_DISCRETES
     digitalWriteFast (TIMING_PIN_0, HIGH);
   #endif
+
+#if Teensy_4_0
+
+  // TODO: this handles rollover but takes extra cpu cycles
+  //  while (ARM_DWT_CYCCNT - previousSampleTime < cpuClockCycles) ; // wait
+  while (ARM_DWT_CYCCNT < cpuClockCycles + previousSampleTime) ; // wait
+
+  previousSampleTime += cpuClockCycles;
+
+#else
 
   // for speed, to reduce jitter
   if (TIMER_FLAG_REGISTER)
@@ -1099,6 +1189,7 @@ inline void waitForTimeout (void)
     waitEnd:
     clearTimerFlag ();
   }
+#endif
 
   #ifdef TIMING_DISCRETES     
     digitalWriteFast (TIMING_PIN_0, LOW);
@@ -1173,6 +1264,11 @@ inline bool timerExpired (void)
 
 void startTimer (uint32_t busTicks)
 {
+#if Teensy_4_0
+
+  previousSampleTime = ARM_DWT_CYCCNT;
+
+#else
   // Enable PIT clock
   SIM_SCGC6 |= SIM_SCGC6_PIT;
 
@@ -1187,5 +1283,6 @@ void startTimer (uint32_t busTicks)
 
   // Enable timer
   TIMER_CONTROL_REGISTER |= PIT_TCTRL_TEN;
+#endif
 }
 
