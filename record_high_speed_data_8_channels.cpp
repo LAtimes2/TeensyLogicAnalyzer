@@ -30,13 +30,21 @@
 // Teensy LC
 #if defined(__MKL26Z64__)
   #define Teensy_LC 1
+// Teensy 4_0
+#elif defined(__IMXRT1062__)
+  #define Teensy_4_0 1
 #endif
 
 // LC doesn't have enough registers for high speed
 #if not Teensy_LC
 
-// use Port D for sampling
-#define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
+#if Teensy_4_0
+   // use Port 7 for sampling
+   #define PORT_DATA_INPUT_REGISTER  GPIO7_DR
+#else
+   // use Port D for sampling
+   #define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
+#endif
 
 #define DEBUG_SERIAL(x) 0   // no debug output
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
@@ -554,7 +562,12 @@ inline void toggleTimingPin0 () {
 // returns true if a USB interrupt is pending (meaning data is available)
 inline bool usbInterruptPending (void) {
 
+#if Teensy_4_0
+  return (USB1_ENDPTCOMPLETE);
+#else
   return (USB0_ISTAT & ~USB_ISTAT_SOFTOK);
+#endif
+
 }
 
 inline void waitForTimeout (void)

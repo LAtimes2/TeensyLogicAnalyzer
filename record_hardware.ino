@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2020 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -21,6 +21,9 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+// skip 4.0 for now
+#if not Teensy_4_0
 
 // Teensy 3.0/3.1/3.2
 #if defined(KINETISK)
@@ -851,5 +854,7 @@ inline void startSPIClock (bool multipleChannels,
   SPI1_PUSHR = SPI_PUSHR_CONT;
   SPI1_PUSHR = SPI_PUSHR_CONT;
 }
+
+#endif
 
 #endif

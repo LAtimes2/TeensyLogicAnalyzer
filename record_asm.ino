@@ -22,6 +22,9 @@
  * SOFTWARE.
  */
 
+// see record_asm_t4 for Teensy 4
+#if not Teensy_4_0
+
 #if not Teensy_LC
 void recordDataAsm5Clocks (sumpSetupVariableStruct &sv,
                            sumpDynamicVariableStruct &dynamic) {
@@ -276,7 +279,11 @@ void recordDataAsmWithTrigger (sumpSetupVariableStruct &sv,
   uint32_t *inputPtr = sv.startOfBuffer;
 
   volatile uint32_t* portDataInputRegister = &PORT_DATA_INPUT_REGISTER;
+#if Teensy_4_0
+  volatile uint32_t* USB0_ISTAT_register = &USB1_ENDPTCOMPLETE;
+#else
   volatile uint8_t* USB0_ISTAT_register = &USB0_ISTAT;
+#endif  
   uint32_t bufferHasWrapped = dynamic.bufferHasWrapped;
   uint32_t tempValue = 0;
   uint32_t workingValue = 0;
@@ -2895,3 +2902,4 @@ delay(500);
 #endif
 }
 
+#endif  // if not Teensy 4_0

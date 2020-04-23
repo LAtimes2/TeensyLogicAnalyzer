@@ -36,7 +36,11 @@ void maskInterrupts (void) {
    SYST_CSR &= ~SYST_CSR_TICKINT;
 
    // Mask USB interrupt
+#if Teensy_4_0
+   NVIC_DISABLE_IRQ (IRQ_USB1);
+#else
    NVIC_DISABLE_IRQ (IRQ_USBOTG);
+#endif
 
    interrupts_masked = true;
 }
@@ -56,7 +60,11 @@ void unmaskInterrupts (void) {
    SYST_CSR |= SYST_CSR_TICKINT;
 
    // Unmask USB interrupt
+#if Teensy_4_0
+   NVIC_ENABLE_IRQ (IRQ_USB1);
+#else
    NVIC_ENABLE_IRQ (IRQ_USBOTG);
+#endif
 
    interrupts_masked = false;
 }
@@ -64,5 +72,10 @@ void unmaskInterrupts (void) {
 // returns true if a USB interrupt is pending (meaning data is available)
 inline bool usbInterruptPending (void) {
 
+#if Teensy_4_0
+  return (USB1_ENDPTCOMPLETE);
+#else
   return (USB0_ISTAT & ~USB_ISTAT_SOFTOK);
+#endif
+
 }

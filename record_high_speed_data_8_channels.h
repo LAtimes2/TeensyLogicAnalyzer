@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2020 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -27,4 +27,4 @@
 #include "types.h"
 
 void recordHighSpeedData_8_Channels (sumpSetupVariableStruct &sv,
-                         sumpDynamicVariableStruct &dynamic);
+                                     sumpDynamicVariableStruct &dynamic);
