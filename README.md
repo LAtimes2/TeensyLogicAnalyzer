@@ -1,11 +1,7 @@
 # TeensyLogicAnalyzer
 Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
-<<<<<<< Updated upstream
-(Note: Does not work with Teensy 4 yet. Coming soon)
-=======
 (4/22/20) NEW: First beta release for TEENSY 4.0. Only supports 3 channels. Next release will be 8 channels.
->>>>>>> Stashed changes
 
 Two modes:
 
