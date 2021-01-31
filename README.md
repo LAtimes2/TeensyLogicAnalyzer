@@ -1,8 +1,7 @@
 # TeensyLogicAnalyzer
 Logic Analyzer for the Teensy development boards (pjrc.com/teensy)
 
-(4/22/20) NEW: First beta release for TEENSY 4.0. Only supports 3 channels. Next release will be 8 channels.\
-(6/28/20)      Added TEENSY 4.1 beta release. Still only 3 channels. Official release is coming soon.
+(1/31/21) Released V4.2 - adds 8 channels for Teensy 4.x. Channels 0-7 are pins 14-21, in order
 
 Two modes:
 
@@ -26,6 +25,13 @@ Now you can get started on Windows or Linux in 3 easy steps:
 3. Select Device type for your Teensy type, then select Load Firmware
 
 When done, select Capture and you can start looking at data. For a demo on Teensy without external signals, select Teensy Demo when loading firmware and channels 4-8 will have PWM data on them (be sure not to connect anything to the Teensy since these channels are outputs in Demo mode).
+
+#### Version 4.2
+
+No changes for Teensy 3.x.
+Teensy 4.x has 8 channels - channels 0-7 are pins 14-21, in order.
+Teensy 4.x - full capability up to 20 MHz, simpler capability at 40 and 75 MHz.
+See User's Guide back pages for table of capabilities by sampling rate.
 
 #### Version 4.0
 

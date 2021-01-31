@@ -53,7 +53,7 @@ void startOverclocking_720MHz ()
   // convert clock cycles between samples from original speed to new speed
 
   // round by adding half of original clock speed
-  cpuClockCycles = cpuClockCycles * 720 + (originalClockSpeed / 2) / 1000000);
+  cpuClockCycles = cpuClockCycles * 720 + ((originalClockSpeed / 2) / 1000000);
   cpuClockCycles /= (originalClockSpeed / 1000000);
 
   set_arm_clock (720000000);
@@ -68,7 +68,7 @@ void startOverclocking_816MHz ()
   // convert clock cycles between samples from original speed to new speed
 
   // round by adding half of original clock speed
-  cpuClockCycles = cpuClockCycles * 816 + (originalClockSpeed / 2) / 1000000);
+  cpuClockCycles = cpuClockCycles * 816 + ((originalClockSpeed / 2) / 1000000);
   cpuClockCycles /= (originalClockSpeed / 1000000);
 
   set_arm_clock (816000000);
