@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2021 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -45,7 +45,15 @@ byte getSample (sumpSetupVariableStruct setup, int sampleIndex)
   int arrayIndex = sampleIndex / setup.samplesPerElement;
   int elementIndex = setup.samplesPerElement - (sampleIndex % setup.samplesPerElement) - 1;
 
-  sample = (setup.startOfBuffer[arrayIndex] >> (setup.sampleShift * elementIndex)) & setup.sampleMask;
+  sample = setup.startOfBuffer[arrayIndex];
+
+  if (setup.rawPortRead)
+  {
+    // Fastest Asm stores data as uint32_t, need to shift bits down to bottom 8
+    sample = shiftSample (sample);
+  }
+
+  sample = (sample >> (setup.sampleShift * elementIndex)) & setup.sampleMask;
 
   // if RLE is selected but it wasn't used, clear top channel
   if (setup.rleSelected && !setup.rleUsed)
@@ -54,7 +62,66 @@ byte getSample (sumpSetupVariableStruct setup, int sampleIndex)
     sample = sample & ~setup.rleCountIndicator;
   }
 
+  if (setup.swapChannels)
+  {
+    // if not an rle count value
+    if (!setup.rleUsed || !(sample & setup.rleCountIndicator))
+    {
+      sample = swapPhysicalChannels (setup, sample);
+    }
+  }
+
   return sample;
+}
+
+// converts a physical sample to logical channel ordering
+uint32_t swapPhysicalChannels (sumpSetupVariableStruct setup, uint32_t physicalSample)
+{
+  uint32_t logicalSample = 0;
+  uint32_t value;
+
+  for (int index = 0; index < setup.numberOfChannels; index++)
+  {
+    // get physical value
+    value = (physicalSample >> setup.logicalToPhysicalChannel[index]) & 0x01;
+
+    // shift to logical location
+    value = value << index;
+
+    // save value
+    logicalSample += value;
+  }
+
+  return logicalSample;
+}
+
+// converts a logical sample to physical channel ordering
+uint32_t swapLogicalChannels (sumpSetupVariableStruct setup, uint32_t logicalSample)
+{
+  uint32_t physicalSample = 0;
+  uint32_t value;
+
+  if (setup.swapChannels)
+  {
+    for (int index = 0; index < setup.numberOfChannels; index++)
+    {
+      // get logical value
+      value = (logicalSample >> index) & 0x01;
+
+      // shift to physical location
+      value = (value << setup.logicalToPhysicalChannel[index]);
+
+      // save value
+      physicalSample += value;
+    }
+  }
+  else
+  {
+    // no swap
+    physicalSample = logicalSample;
+  }
+
+  return physicalSample;
 }
 
 bool sampleIsRleCount (sumpSetupVariableStruct setup, int sampleIndex)
@@ -237,6 +304,12 @@ void sendData (
 
     // adjust samples available to be sent
     samplesToSend -= missingSampleCount;
+  }
+
+  // special case of no data recorded
+  if (dynamic.interruptedIndex == -2)
+  {
+    samplesToSend = 0;
   }
 
   // get last sampleIndex to send

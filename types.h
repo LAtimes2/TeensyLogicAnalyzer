@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2021 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -49,6 +49,7 @@ enum TriggerType {
 struct sumpSetupVariableStruct {
   uint32_t anyDataMask;
   uint32_t busClockDivisor;
+  uint32_t bytesPerElement = 1;
   uint32_t cpuClockTicks;
   uint32_t clockFrequency;
   uint32_t delaySamples = 0;
@@ -62,10 +63,13 @@ struct sumpSetupVariableStruct {
   uint32_t samplesRequested = 0;
   uint32_t samplesToRecord = 0;
   uint32_t samplesToSend;
+  bool rawPortRead = false;    // if true, buffer contains raw GPIO values
+  bool swapChannels = false;
+  uint32_t logicalToPhysicalChannel[16];
   int lastTriggerLevel;
   byte rleCountIndicator = 0;
-  byte triggerMask[4];
-  byte triggerValue[4];
+  uint32_t triggerMask[4];
+  uint32_t triggerValue[4];
   uint16_t triggerDelay[4];
   uint32_t *startOfBuffer;
   uint32_t *endOfBuffer;
@@ -77,7 +81,6 @@ struct sumpSetupVariableStruct {
 // data that changes while recording
 struct sumpDynamicVariableStruct {
   bool bufferHasWrapped;
-  int interruptedIndex;   // location where recording was halted early, or -1 if not halted
+  int interruptedIndex;   // location where recording was halted early, or -1 if not halted. -2 = no data was recorded
   uint32_t triggerSampleIndex;
 };
-

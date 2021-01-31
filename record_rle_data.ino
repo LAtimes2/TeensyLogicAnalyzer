@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2021 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -51,6 +51,7 @@ void recordRLEData (sumpSetupVariableStruct &sv,
   uint32_t rleCountIndicator = sv.rleCountIndicator;
 
   uint32_t sampleShift = sv.sampleShift;
+  uint32_t sample;
   int sampleValue = -1;
   uint32_t previousFirstValue = 0;
   bool rleInProgress = false;
@@ -100,9 +101,11 @@ void recordRLEData (sumpSetupVariableStruct &sv,
     waitForTimeout ();
 
     // read a sample
-    if ((PORT_DATA_INPUT_REGISTER & sampleMask) != (uint32_t)sampleValue)
+    sample = readSample () & sampleMask;
+
+    if (sample != (uint32_t)sampleValue)
     {
-      sampleValue = PORT_DATA_INPUT_REGISTER & sampleMask;
+      sampleValue = sample;
 
       // if previous rle count has not been written
       if (workingCount == 0)
@@ -428,8 +431,3 @@ void recordRLEData (sumpSetupVariableStruct &sv,
     dynamic.interruptedIndex = deltaElements * samplesPerElement;
   }
 }
-
-
-
-
-

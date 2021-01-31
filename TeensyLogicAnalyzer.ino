@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2020 LAtimes2
+ * Copyright (c) 2021 LAtimes2
  *
  * The MIT License (MIT)
  *
@@ -57,7 +57,11 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
   #define Teensy_3_6 1
 // Teensy 4.0
 #elif defined(__IMXRT1062__)
+  // Temporarily define both 4_0 and 4_1 if needed.
   #define Teensy_4_0 1
+  #if defined(ARDUINO_TEENSY41)
+    #define Teensy_4_1 1
+  #endif
 #endif
 
 //
@@ -80,9 +84,14 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
   #if Teensy_4_0
 
-#define CHAN0 10
-#define CHAN1 12
-#define CHAN2 11
+#define CHAN0 14
+#define CHAN1 15
+#define CHAN2 16
+#define CHAN3 17
+#define CHAN4 18
+#define CHAN5 19
+#define CHAN6 20
+#define CHAN7 21
 
   #else
 
@@ -101,12 +110,26 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
 #define LED_PIN 13
 
+  #if Teensy_4_0
+
+#define TIMING_PIN_0 3
+#define TIMING_PIN_1 4
+#define TIMING_PIN_2 5
+#define TIMING_PIN_3 6
+#define TIMING_PIN_4 7
+#define TIMING_PIN_5 8
+
+  #else
+
 #define TIMING_PIN_0 15
 #define TIMING_PIN_1 16
 #define TIMING_PIN_2 17
 #define TIMING_PIN_3 18
 #define TIMING_PIN_4 19
 #define TIMING_PIN_5 22
+
+  #endif
+
 
 //////////////////////////////////////
 // End of settings
@@ -115,15 +138,7 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 #include <stdint.h>
 #include "types.h"
 
-#if Teensy_4_0
-// beta release
-#define VERSION "4.1 beta"
-
-#else
-
-#define VERSION "4.1"
-
-#endif
+#define VERSION "4.2"
 
 //#define TIMING_DISCRETES   // if uncommented, set pins 0 and 1 for timing
 //#define TIMING_DISCRETES_2 // if uncommented, more timing detail
@@ -135,6 +150,7 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 //#define DEBUG_SERIAL(x) Serial1.x // debug output to Serial1
 //#define DEBUG_SERIAL(x) Serial2.x // debug output to Serial2
 //#define DEBUG_SERIAL(x) Serial3.x // debug output to Serial3
+//#define DEBUG_SERIAL(x) SerialUSB1.x // debug output to SerialUSB2
 
 // Program requires about 1k bytes for local variables. The buffer sizes
 // below have been set to be as large as possible while leaving 1k.
@@ -187,8 +203,8 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
 #elif Teensy_4_0
 
-   // 460k buffer size
-   #define LA_SAMPLE_SIZE 460 * 1024
+   // 428k buffer size
+   #define LA_SAMPLE_SIZE 428 * 1024
 
 #else
 
@@ -197,12 +213,56 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 
 #endif
 
+// an element is 4 bytes (= uint32_t)
+#define LA_BUFFER_ELEMENT_SIZE LA_SAMPLE_SIZE / 4
+
 #if Teensy_4_0
-   // use Port 7 for sampling
-   #define PORT_DATA_INPUT_REGISTER  GPIO7_PSR
+   // use Port 6 for sampling
+   #define PORT_DATA_INPUT_REGISTER  GPIO6_PSR
+
+  inline uint32_t readSample ()
+  {
+    uint32_t sample = shiftSample (PORT_DATA_INPUT_REGISTER);
+
+    return sample;
+  }
+
+  inline uint32_t shiftSample (uint32_t sample)
+  {
+    uint32_t shiftedSample;
+
+    // bits 16-19 to bits 0-3
+    shiftedSample = (sample & 0x000F0000) >> 16;
+    // bits 22-23 to bits 4-5
+    shiftedSample |= (sample & 0x00C00000) >> 18;
+    // bits 26-27 to bits 6-7
+    shiftedSample |= (sample & 0x0C000000) >> 20;
+
+    return shiftedSample;    
+  }
+
+  // inverse of shiftSample
+  inline uint32_t unshiftSample (uint32_t sample)
+  {
+    uint32_t unshiftedSample;
+
+    // bits 0-3 to bits 16-19
+    unshiftedSample = (sample & 0x0000000F) << 16;
+    // bits 4-5 to bits 22-23
+    unshiftedSample |= (sample & 0x00000030) << 18;
+    // bits 6-7 to bits 26-27
+    unshiftedSample |= (sample & 0x000000C0) << 20;
+
+    return unshiftedSample;    
+  }
 #else
    // use Port D for sampling
    #define PORT_DATA_INPUT_REGISTER  GPIOD_PDIR
+
+  inline uint32_t readSample ()
+  {
+    return PORT_DATA_INPUT_REGISTER;
+  }
 #endif
 
 // PIT timer registers
@@ -240,15 +300,17 @@ FASTRUN void recordHighSpeedRLEData (sumpSetupVariableStruct &sv,
 #pragma GCC diagnostic ignored "-Wunused-value"
 
 // Add extra samples just in case (triggering may use up to 16 extra).
-#define EXTRA_SAMPLES 32
+#define EXTRA_ELEMENTS 8
 
 // this is the main data storage array.
 // Needs to be aligned to a 4 byte boundary
-byte logicData[LA_SAMPLE_SIZE + EXTRA_SAMPLES] __attribute__ ((aligned));
+uint32_t logicData[LA_BUFFER_ELEMENT_SIZE + EXTRA_ELEMENTS];
 
 enum strategyType {
   STRATEGY_NORMAL,
+  STRATEGY_NORMAL_OVERCLOCK_720,
   STRATEGY_NORMAL_RLE,
+  STRATEGY_NORMAL_RLE_OVERCLOCK_816,
   STRATEGY_HIGH_SPEED,
   STRATEGY_HIGH_SPEED_RLE,
   STRATEGY_ASM_3_CLOCKS,
@@ -263,6 +325,7 @@ int F_BUS = F_BUS_ACTUAL;
 // cpu clock cycles between samples
 uint32_t cpuClockCycles;
 uint32_t previousSampleTime;
+volatile bool stopRecording = false;
 
 #endif
 
@@ -326,14 +389,11 @@ void setup()
   pinMode(CHAN0, INPUT);
   pinMode(CHAN1, INPUT);
   pinMode(CHAN2, INPUT);
-#if not Teensy_4_0
   pinMode(CHAN3, INPUT);
   pinMode(CHAN4, INPUT);
   pinMode(CHAN5, INPUT);
   pinMode(CHAN6, INPUT);
   pinMode(CHAN7, INPUT);
-#endif
-
 #endif
 
   pinMode(LED_PIN, OUTPUT);
@@ -410,6 +470,25 @@ currentFBUS = newFBUS;
 
 }
 
+void setupPhysicalChannelMapping (sumpSetupVariableStruct &sumpSetup) {
+
+  sumpSetup.swapChannels = false;
+
+#if Teensy_4_0
+  sumpSetup.swapChannels = true;
+  sumpSetup.numberOfChannels = 8;
+  sumpSetup.logicalToPhysicalChannel[0] = 2;  // pin 14
+  sumpSetup.logicalToPhysicalChannel[1] = 3;  // pin 15
+  sumpSetup.logicalToPhysicalChannel[2] = 5;  // pin 16
+  sumpSetup.logicalToPhysicalChannel[3] = 4;  // pin 17
+  sumpSetup.logicalToPhysicalChannel[4] = 1;  // pin 18
+  sumpSetup.logicalToPhysicalChannel[5] = 0;  // pin 19
+  sumpSetup.logicalToPhysicalChannel[6] = 6;  // pin 20
+  sumpSetup.logicalToPhysicalChannel[7] = 7;  // pin 21
+#endif
+
+}
+
 int getCurrentFBUS () {
   return currentFBUS;
 }
@@ -419,6 +498,8 @@ void loop()
 {
   byte inByte;
   struct sumpSetupVariableStruct sumpSetup;
+
+  setupPhysicalChannelMapping (sumpSetup);
 
   // set to no trigger initially
   sumpSetup.triggerMask[0] = 0;
@@ -564,7 +645,9 @@ void processSingleByteCommand (byte inByte,
           Serial.write("Teensy48");
         #endif
       } else {
-        #if Teensy_4_0
+        #if Teensy_4_1
+           Serial.write("Teensy41_600");
+        #elif Teensy_4_0
            if (F_CPU == 600000000) {
               Serial.write("Teensy40_600");
            } else if (F_CPU == 816000000) {
@@ -647,31 +730,31 @@ void processFiveByteCommand (byte command[],
   switch (sumpRX.command[0]) {
 
     case SUMP_TRIG_1_MASK: // mask for bits to trigger on
-      sumpSetup.triggerMask[0] = sumpRX.command[1];
+      sumpSetup.triggerMask[0] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
     case SUMP_TRIG_2_MASK:
-      sumpSetup.triggerMask[1] = sumpRX.command[1];
+      sumpSetup.triggerMask[1] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
     case SUMP_TRIG_3_MASK:
-      sumpSetup.triggerMask[2] = sumpRX.command[1];
+      sumpSetup.triggerMask[2] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
     case SUMP_TRIG_4_MASK:
-      sumpSetup.triggerMask[3] = sumpRX.command[1];
+      sumpSetup.triggerMask[3] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
 
     case SUMP_TRIG_1_VALS: // value to trigger on
-      sumpSetup.triggerValue[0] = sumpRX.command[1];
+      sumpSetup.triggerValue[0] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       // reset to invalid value
       sumpSetup.lastTriggerLevel = -1;
       break;
     case SUMP_TRIG_2_VALS:
-      sumpSetup.triggerValue[1] = sumpRX.command[1];
+      sumpSetup.triggerValue[1] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
     case SUMP_TRIG_3_VALS:
-      sumpSetup.triggerValue[2] = sumpRX.command[1];
+      sumpSetup.triggerValue[2] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
     case SUMP_TRIG_4_VALS:
-      sumpSetup.triggerValue[3] = sumpRX.command[1];
+      sumpSetup.triggerValue[3] = swapLogicalChannels(sumpSetup, sumpRX.command[1]);
       break;
 
     case SUMP_TRIG_1_CONFIG: // trigger configuration
@@ -835,6 +918,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
 
   // set to true later if used
   sumpSetup.rleUsed = false;
+  sumpSetup.rawPortRead = false;
 
   sumpSetup.samplesRequested = sumpSetup.samplesToRecord;
 
@@ -851,6 +935,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   } else {
     sumpSetup.numberOfChannels = 8;
   }
+
+#if Teensy_4_0
+  // for now, Teensy 4 is always 8 channels (need ReadSample4Chans, etc)
+  sumpSetup.numberOfChannels = 8;
+#endif
 
 #if HARDWARE_CONFIGURATION
 
@@ -869,9 +958,9 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   #endif
 
 #else
- 
+
 #if Teensy_4_0
-  // GPIO read seems to take 8 clock cycles
+  // GPIO read takes 8 clock cycles
   if (sumpSetup.cpuClockTicks <= 8)
 #else
   if (sumpSetup.cpuClockTicks <= 3)
@@ -879,6 +968,11 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   {
     sumpStrategy = STRATEGY_ASM_3_CLOCKS;
     sumpSetup.numberOfChannels = 8;
+
+#if Teensy_4_0
+    // reads the entire GPIO port and stores it for later decoding
+    sumpSetup.rawPortRead = true;
+#endif
   }
 #if Teensy_LC
   else if (sumpSetup.cpuClockTicks <= 6)
@@ -890,14 +984,19 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     sumpSetup.numberOfChannels = 8;
   }
 #if Teensy_4_0
-  // GPIO read seems to take 8 clock cycles
-  else if (sumpSetup.cpuClockTicks <= 11)
+  // GPIO read takes 8 clock cycles
+  else if (sumpSetup.cpuClockTicks <= 15)
 #else
   else if (sumpSetup.cpuClockTicks <= 8)
 #endif
   {
     sumpStrategy = STRATEGY_ASM_8_CLOCKS;
     sumpSetup.numberOfChannels = 8;
+
+   #if Teensy_4_0
+       // reads the entire GPIO port and stores it for later decoding
+       sumpSetup.rawPortRead = true;
+   #endif
   }
   else
   {
@@ -905,7 +1004,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     if (sumpSetup.rleSelected &&
         sumpSetup.numberOfChannels >= 8 &&
 #if Teensy_4_0
-        sumpSetup.cpuClockTicks > 24)
+        sumpSetup.cpuClockTicks > 30)
 #else
         sumpSetup.cpuClockTicks > 48)
 #endif
@@ -913,6 +1012,16 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
       sumpSetup.rleUsed = true;
       sumpStrategy = STRATEGY_NORMAL_RLE;
     }
+#if Teensy_4_0
+    else if (sumpSetup.rleSelected &&
+             sumpSetup.numberOfChannels >= 8 &&
+             sumpSetup.cpuClockTicks == 30)
+    {
+      // RLE at 20 MHz needs overclocking
+      sumpSetup.rleUsed = true;
+      sumpStrategy = STRATEGY_NORMAL_RLE_OVERCLOCK_816;
+    }
+#endif
     else if (sumpSetup.rleSelected &&
         sumpSetup.numberOfChannels >= 8 &&
         sumpSetup.cpuClockTicks > 24)
@@ -923,13 +1032,20 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
     else
     {
 #if Teensy_4_0
-      if (sumpSetup.cpuClockTicks > 11)
+      if (sumpSetup.cpuClockTicks > 30)
 #else
       if (sumpSetup.cpuClockTicks > 48)
 #endif
       {
         sumpStrategy = STRATEGY_NORMAL;
       }
+#if Teensy_4_0
+      else if (sumpSetup.cpuClockTicks == 30)
+      {
+        // 20 MHz needs overclocking
+        sumpStrategy = STRATEGY_NORMAL_OVERCLOCK_720;
+      }
+#endif
       else if (sumpSetup.cpuClockTicks > 24 &&
                sumpSetup.numberOfChannels < 8)
       {
@@ -944,13 +1060,24 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
         // 48 and 8 channels or 24 clock ticks
         sumpStrategy = STRATEGY_HIGH_SPEED;
         sumpSetup.numberOfChannels = 8;
+
+   #if Teensy_4_0
+       // reads the entire GPIO port and stores it for later decoding
+       sumpSetup.rawPortRead = true;
+   #endif
 #endif
       }
     }
   }
   
   // prevent buffer overflow
-  if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 8) &&
+  if ((sumpSetup.samplesToRecord > LA_BUFFER_ELEMENT_SIZE) &&
+      (sumpSetup.rawPortRead))
+  {
+    // rawPortRead has 1 sample/element
+    sumpSetup.samplesToRecord = LA_BUFFER_ELEMENT_SIZE;
+  }
+  else if ((sumpSetup.samplesToRecord > LA_SAMPLE_SIZE * 8) &&
       (sumpSetup.numberOfChannels == 1))
   {
     sumpSetup.samplesToRecord = LA_SAMPLE_SIZE * 8;
@@ -997,7 +1124,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   if (sumpSetup.cpuClockTicks <= 8)
 #endif
   {
-    // assembly only does 1 sample per byte
+    // assembly only does 1 sample per byte(3.x)/int(4.x)
     sumpSetup.numberOfChannels = 8;
 
     if (sumpSetup.samplesToRecord > LA_SAMPLE_SIZE)
@@ -1051,12 +1178,35 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
       break;
   }
 
+  if (sumpSetup.rawPortRead)
+  {
+    // Teensy 4 is a 32-bit port
+    sumpSetup.samplesPerElement = 1;
+
+    // adjust triggers to raw port value (only 1 trigger level is used in raw mode)
+    sumpSetup.triggerMask[0] = unshiftSample (sumpSetup.triggerMask[0]);
+    sumpSetup.triggerValue[0] = unshiftSample (sumpSetup.triggerValue[0]);
+
+    // adjust triggers to raw port value (only 1 trigger level is used in raw mode)
+    sumpSetup.triggerMask[1] = unshiftSample (sumpSetup.triggerMask[1]);
+    sumpSetup.triggerValue[1] = unshiftSample (sumpSetup.triggerValue[1]);
+
+    // adjust triggers to raw port value (only 1 trigger level is used in raw mode)
+    sumpSetup.triggerMask[2] = unshiftSample (sumpSetup.triggerMask[2]);
+    sumpSetup.triggerValue[2] = unshiftSample (sumpSetup.triggerValue[2]);
+
+    // adjust triggers to raw port value (only 1 trigger level is used in raw mode)
+    sumpSetup.triggerMask[3] = unshiftSample (sumpSetup.triggerMask[3]);
+    sumpSetup.triggerValue[3] = unshiftSample (sumpSetup.triggerValue[3]);
+  }
+
+
   // record extra samples, for trigger adjustment later
   sumpSetup.samplesToSend = sumpSetup.samplesToRecord;
-  sumpSetup.samplesToRecord = sumpSetup.samplesToRecord + EXTRA_SAMPLES;
+  sumpSetup.samplesToRecord = sumpSetup.samplesToRecord + EXTRA_ELEMENTS * sumpSetup.samplesPerElement;
   
-  sumpSetup.startOfBuffer = (uint32_t *)logicData;
-  sumpSetup.endOfMemory = sumpSetup.startOfBuffer + LA_SAMPLE_SIZE / sumpSetup.samplesPerElement;
+  sumpSetup.startOfBuffer = logicData;
+  sumpSetup.endOfMemory = sumpSetup.startOfBuffer + LA_BUFFER_ELEMENT_SIZE / sumpSetup.samplesPerElement;
   sumpSetup.endOfBuffer = sumpSetup.startOfBuffer + sumpSetup.samplesToRecord / sumpSetup.samplesPerElement;
   
   if (sumpSetup.triggerMask[0] != 0)
@@ -1072,7 +1222,7 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   }
 
   // add extra (half of extra samples before and after trigger) for trigger adjustment at end
-  sumpSetup.delaySizeInElements = (sumpSetup.delaySamples + EXTRA_SAMPLES / 2) / sumpSetup.samplesPerElement;
+  sumpSetup.delaySizeInElements = (sumpSetup.delaySamples + (EXTRA_ELEMENTS * sumpSetup.samplesPerElement) / 2) / sumpSetup.samplesPerElement;
 
 #if HARDWARE_CONFIGURATION
   // for hardware, needs to be an even number
@@ -1126,10 +1276,34 @@ void SUMPrecordData(sumpSetupVariableStruct &sumpSetup)
   {
     recordLowSpeedData (sumpSetup, dynamic);
   }
+#if Teensy_4_0
+  else if (sumpStrategy == STRATEGY_NORMAL_OVERCLOCK_720)
+  {
+    startOverclocking_720MHz ();
+    // need to restart timer after changing clock speed
+    startTimer (sumpSetup.busClockDivisor);
+
+    recordLowSpeedData (sumpSetup, dynamic);
+
+    stopOverclocking (false);
+  }
+#endif
   else if (sumpStrategy == STRATEGY_NORMAL_RLE)
   {
     recordRLEData (sumpSetup, dynamic);
   }
+#if Teensy_4_0
+  else if (sumpStrategy == STRATEGY_NORMAL_RLE_OVERCLOCK_816)
+  {
+    startOverclocking_816MHz ();
+    // need to restart timer after changing clock speed
+    startTimer (sumpSetup.busClockDivisor);
+
+    recordRLEData (sumpSetup, dynamic);
+
+    stopOverclocking (false);
+  }
+#endif
 #if not Teensy_LC
   else if (sumpStrategy == STRATEGY_HIGH_SPEED)
   {
@@ -1160,9 +1334,7 @@ inline void waitForTimeout (void)
 
 #if Teensy_4_0
 
-  // TODO: this handles rollover but takes extra cpu cycles
-  //  while (ARM_DWT_CYCCNT - previousSampleTime < cpuClockCycles) ; // wait
-  while (ARM_DWT_CYCCNT < cpuClockCycles + previousSampleTime) ; // wait
+  while (ARM_DWT_CYCCNT - previousSampleTime < cpuClockCycles) ; // wait
 
   previousSampleTime += cpuClockCycles;
 
@@ -1285,4 +1457,3 @@ void startTimer (uint32_t busTicks)
   TIMER_CONTROL_REGISTER |= PIT_TCTRL_TEN;
 #endif
 }
-

@@ -1,5 +1,5 @@
 /* Teensy Logic Analyzer
- * Copyright (c) 2018 LAtimes2
+ * Copyright (c) 2021 LAtimes2
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -31,6 +31,7 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
   uint32_t *endOfBuffer = (uint32_t *)sv.endOfBuffer;
   uint32_t *startOfBuffer = (uint32_t *)sv.startOfBuffer;
   uint32_t *startPtr = (uint32_t *)sv.startOfBuffer;
+  uint32_t sample;
   byte samplesPerElement = sv.samplesPerElement;
   byte samplesPerElementMinusOne = samplesPerElement - 1;
   register uint32_t sampleMask = sv.sampleMask;
@@ -74,8 +75,10 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
   {
     waitForTimeout ();
 
-    // read a sample
-    workingValue = (workingValue << sampleShift) + (PORT_DATA_INPUT_REGISTER & sampleMask);
+    sample = readSample ();
+
+    // save a sample
+    workingValue = (workingValue << sampleShift) + (sample & sampleMask);
     --workingCount;
 
     if (workingCount == 0)
@@ -252,8 +255,3 @@ void recordLowSpeedData (sumpSetupVariableStruct &sv,
     dynamic.triggerSampleIndex = dynamic.triggerSampleIndex - sv.samplesToRecord;
   }
 }
-
-
-
-
-
